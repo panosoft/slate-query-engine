@@ -2,7 +2,8 @@ module PersonEntity exposing (..)
 
 import Json.Decode as Json exposing ((:=), maybe, string, int, float)
 import Json.JsonHelper exposing ((///), (<||))
-import Slate.Slate exposing (..)
+import Slate.Event exposing (..)
+import Slate.EventProcessing exposing (..)
 
 
 -- Value Objects
@@ -38,13 +39,6 @@ nameDecoder =
 type alias EntirePerson =
     { name : Maybe Name
     , age : Maybe Int
-    }
-
-
-defaultPerson : EntirePerson
-defaultPerson =
-    { name = defaultName
-    , age = -1
     }
 
 
