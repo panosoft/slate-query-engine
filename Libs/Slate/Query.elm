@@ -1,4 +1,4 @@
-module Slate.Query exposing (NodeQuery, Query(..), query, buildQuery)
+module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate)
 
 import Dict exposing (..)
 import Set exposing (..)
@@ -66,21 +66,21 @@ entityName nodeQuery =
             ""
 
 
-fold : (NodeQuery -> a) -> Query -> List a
-fold f query =
+map : (NodeQuery -> a) -> Query -> List a
+map f query =
     case query of
         Node nodeQuery children ->
-            f nodeQuery :: (List.concat <| List.map (fold f) children)
+            f nodeQuery :: (List.concat <| List.map (map f) children)
 
         Leaf nodeQuery ->
             [ f nodeQuery ]
 
 
-fold2 : (NodeQuery -> List Query -> a) -> Query -> List a
-fold2 f2 query =
+map2 : (NodeQuery -> List Query -> a) -> Query -> List a
+map2 f2 query =
     case query of
         Node nodeQuery children ->
-            f2 nodeQuery children :: (List.concat <| List.map (fold2 f2) children)
+            f2 nodeQuery children :: (List.concat <| List.map (map2 f2) children)
 
         Leaf nodeQuery ->
             [ f2 nodeQuery [] ]
@@ -120,10 +120,10 @@ validQuery : Query -> List String
 validQuery query =
     let
         propertiesErrors =
-            List.concat <| fold propertiesCheck query
+            List.concat <| map propertiesCheck query
 
         entityNames =
-            fold extractEntityName query
+            map extractEntityName query
     in
         if (Set.size <| Set.fromList entityNames) /= List.length entityNames then
             [ "Query must NOT be Cyclic" ]
@@ -148,23 +148,44 @@ childEntityNames nodeQuery children =
 
 parentChild : Query -> Dict String (List String)
 parentChild query =
-    Dict.fromList <| List.filter (\( _, list ) -> list /= []) <| fold2 childEntityNames query
+    Dict.fromList <| List.filter (\( _, list ) -> list /= []) <| map2 childEntityNames query
 
 
 
 -- TODO finish
 
 
+{-| clause to be added on first query of set
+-}
 maxIdSQLClause : String
 maxIdSQLClause =
     "CROSS JOIN (SELECT MAX(id) FROM events) AS q"
 
 
+{-| column to be added on first query of set
+-}
 maxIdColumn : String
 maxIdColumn =
     ", q.max"
 
 
+{-| maxColumn and maxIdSQLClause are to be added on first query only. This will precludes subsequent
+    queries from including information that was not available when the first query is executed.
+
+    entityIds are the entity ids for the query. In the first query they are provided as part of the buildQuery call.
+    In subsequent queries, they are the ids of the children that were retrieved by the parent.
+
+    eventNames are the events of the current node and direct children.
+
+    entityCriteria is an optional criteria for this node.
+
+    lastMaxId is the max Id of the current dataset. Initially, this is -1.
+
+    additionalCriteria is the optional criteria for the whole query.
+
+    firstQueryMaxCriteria is of the form `AND id < {{firstQueryMaxId}}`, where firstQueryMaxId is from the first query in the template.
+    For the first query this should be BLANK.
+-}
 sQLTemplate : String
 sQLTemplate =
     """
@@ -176,13 +197,13 @@ WHERE ((entity_id IN ({{entityIds}})
         AND {{entityCriteria}}
         AND id > {{lastMaxId}}))
     AND {{additionalCriteria}}
-    AND {{firstQueryMaxId}}
+    {{firstQueryMaxCriteria}}
 ORDER BY id
 """
 
 
-buildQuery : String -> Query -> Result (List String) (List String)
-buildQuery additionalCriteria query =
+buildQueryTemplate : Query -> Result (List String) (List String)
+buildQueryTemplate query =
     let
         errors =
             validQuery query

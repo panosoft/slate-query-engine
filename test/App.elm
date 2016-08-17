@@ -52,7 +52,7 @@ personQuery : Result (List String) (List String)
 personQuery =
     Node { query | schema = Just personSchema, properties = Just [ "name" ] }
         []
-        |> buildQuery ""
+        |> buildQueryTemplate
 
 
 test =
