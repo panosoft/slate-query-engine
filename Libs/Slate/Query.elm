@@ -106,28 +106,6 @@ tupToArgs f ( a1, a2 ) =
     f a1 a2
 
 
-
--- map : (NodeQuery -> a) -> Query -> List a
--- map f query =
---     case query of
---         Node nodeQuery children ->
---             f nodeQuery :: (List.concat <| List.map (map f) children)
---
---         Leaf nodeQuery ->
---             [ f nodeQuery ]
---
---
---
--- map2 : (NodeQuery -> List Query -> a) -> Query -> List a
--- map2 f2 query =
---     case query of
---         Node nodeQuery children ->
---             f2 nodeQuery children :: (List.concat <| List.map (map2 f2) children)
---
---         Leaf nodeQuery ->
---             [ f2 nodeQuery [] ]
-
-
 propertiesCheck : NodeQuery -> List String
 propertiesCheck nodeQuery =
     case nodeQuery.schema of
@@ -137,7 +115,7 @@ propertiesCheck nodeQuery =
                     Set.fromList <| nodeQuery.properties // []
 
                 schemaProperties =
-                    Set.fromList <| List.map .type' schema.properties
+                    Set.fromList <| List.map .name schema.properties
 
                 diff =
                     Set.toList <| Set.diff queryProperties schemaProperties
@@ -183,14 +161,40 @@ extractQueryEntityName query =
             extractEntityName nodeQuery
 
 
-childEntityNames : NodeQuery -> List Query -> ( String, List String )
+extractNodeQuery : Query -> NodeQuery
+extractNodeQuery query =
+    case query of
+        Node nodeQuery children ->
+            nodeQuery
+
+        Leaf nodeQuery ->
+            nodeQuery
+
+
+childEntityNames : NodeQuery -> List Query -> ( String, List NodeQuery )
 childEntityNames nodeQuery children =
-    ( extractEntityName nodeQuery, List.map extractQueryEntityName children )
+    ( extractEntityName nodeQuery, List.map extractNodeQuery children )
 
 
-parentChild : Query -> Dict String (List String)
+parentChild : Query -> Dict String (List NodeQuery)
 parentChild query =
-    Dict.fromList <| List.filter (\( _, list ) -> list /= []) <| toFlatListMap2 childEntityNames query
+    let
+        filter =
+            List.filter (\( _, list ) -> list /= [])
+
+        parentChild =
+            case (toFlatListMap2 childEntityNames query) of
+                root :: [] ->
+                    [ root ]
+
+                root :: rest ->
+                    root :: (filter rest)
+
+                [] ->
+                    []
+    in
+        Dict.fromList
+            parentChild
 
 
 
@@ -243,7 +247,7 @@ ORDER BY id
 entityTemplate : String
 entityTemplate =
     """
-(entity_id IN ({{entityIds}})
+    (entity_id IN ({{entityIds}})
         AND event->>'name' IN ({eventNames})
         AND {entityCriteria}
         AND id > {{lastMaxId}})
@@ -262,16 +266,22 @@ parametricReplace prefix suffix template replacements =
 getEventNames : Dict String (List NodeQuery) -> NodeQuery -> List String
 getEventNames parentChild parent =
     let
-        children =
-            (Dict.get (extractEntityName parent) parentChild) // []
+        properties : List PropertySchema
+        properties =
+            List.concat <| List.map .properties <| Utils.Utils.filterJust [ parent.schema ]
 
-        nodeQueries =
-            parent :: children
+        queryProperties =
+            (parent.properties // [])
 
-        schemas =
-            Utils.Utils.filterJust <| List.map .schema nodeQueries
+        propertyEventNames : List String
+        propertyEventNames =
+            List.concat <| List.map .eventNames <| List.filter (\property -> List.member property.name (parent.properties // [])) properties
+
+        entityEventNames : List String
+        entityEventNames =
+            List.concat <| List.map .eventNames <| Utils.Utils.filterJust [ parent.schema ]
     in
-        List.concat <| List.map .eventNames schemas
+        List.concat [ entityEventNames, propertyEventNames ]
 
 
 templateReplace : String -> List ( String, String ) -> String
@@ -286,10 +296,10 @@ buildEntityTemplate parentChild nodeQuery =
             getEventNames parentChild nodeQuery
 
         eventNames =
-            String.join "," <| List.map (\name -> "'name'") names
+            String.join "," <| List.map (\name -> "'" ++ name ++ "'") names
 
         entityCriteria =
-            nodeQuery.criteria // ""
+            nodeQuery.criteria // "1=1"
     in
         templateReplace entityTemplate
             [ ( "eventNames", eventNames )
@@ -317,7 +327,7 @@ buildSqlTemplate queriesAtDepth parentChild =
 
                 maxIdSQLClause =
                     if depth == 0 then
-                        "CROSS JOIN (SELECT MAX(id) FROM events) AS q"
+                        "CROSS JOIN (SELECT MAX(id) FROM events) AS q\n"
                     else
                         ""
 
@@ -325,7 +335,7 @@ buildSqlTemplate queriesAtDepth parentChild =
                     String.join "\n\tOR " <| List.map (buildEntityTemplate parentChild) queries
 
                 template =
-                    templateReplace entityTemplate
+                    templateReplace sqlTemplate
                         [ ( "maxIdColumn", maxIdColumn )
                         , ( "maxIdSQLClause", maxIdSQLClause )
                         , ( "entityTemplates", entityTemplates )
@@ -334,12 +344,12 @@ buildSqlTemplate queriesAtDepth parentChild =
                 newTemplates =
                     template :: templates
             in
-                if depth < maxDepth - 1 then
-                    build (depth + 1) newTemplates
+                if depth > 0 then
+                    build (depth - 1) newTemplates
                 else
                     newTemplates
     in
-        List.reverse <| build 0 []
+        build (maxDepth - 1) []
 
 
 buildQueryTemplate : Query -> Result (List String) (List String)
@@ -358,4 +368,4 @@ buildQueryTemplate query =
                 parentChildRelationships =
                     parentChild query
             in
-                Ok []
+                Ok <| buildSqlTemplate queriesAtDepth parentChildRelationships

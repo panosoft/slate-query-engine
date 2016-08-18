@@ -16,18 +16,25 @@ personSchema =
 
 personProperties : List PropertySchema
 personProperties =
-    [ { type' = "name"
+    [ { name = "name"
       , eventNames =
             [ "Person name added"
             , "Person name removed"
             ]
       , owned = False
       }
-    , { type' = "age"
+    , { name = "age"
       , eventNames =
             [ "Person age added"
             , "Person age removed"
             ]
       , owned = False
+      }
+    , { name = "address"
+      , eventNames =
+            [ "Person address added"
+            , "Person address removed"
+            ]
+      , owned = True
       }
     ]

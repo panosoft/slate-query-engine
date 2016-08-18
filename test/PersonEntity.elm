@@ -1,9 +1,36 @@
 module PersonEntity exposing (..)
 
+import Dict exposing (..)
 import Json.Decode as Json exposing ((:=), maybe, string, int, float)
 import Json.JsonHelper exposing ((///), (<||))
 import Slate.Event exposing (..)
+import Slate.Schema exposing (..)
+import Slate.Reference exposing (..)
 import Slate.EventProcessing exposing (..)
+import PersonSchema exposing (..)
+import AddressEntity exposing (..)
+
+
+-- Entity
+
+
+type alias EntirePerson =
+    { name : Maybe Name
+    , age : Maybe Int
+    , address : Maybe EntityReference
+    }
+
+
+{-| Starting point for all subSets of Person
+    since events are applied one at a time to build the final subSet entity
+-}
+entirePersonShell : EntirePerson
+entirePersonShell =
+    { name = Nothing
+    , age = Nothing
+    , address = Nothing
+    }
+
 
 
 -- Value Objects
@@ -32,30 +59,15 @@ nameDecoder =
         <|| ("last" := string)
 
 
-
--- Entity
-
-
-type alias EntirePerson =
-    { name : Maybe Name
-    , age : Maybe Int
-    }
-
-
-{-| Starting point for all subSets of Person
-    since events are applied one at a time to build the final subSet entity
--}
-entirePersonShell : EntirePerson
-entirePersonShell =
-    { name = Nothing
-    , age = Nothing
-    }
+eventMap : Dict String (Maybe Never)
+eventMap =
+    Slate.Schema.eventMap personSchema personProperties
 
 
 {-| Mutate the Person based on an event
 -}
-mutatePerson : Event -> EntirePerson -> Result String EntirePerson
-mutatePerson event entity =
+mutate : Event -> EntirePerson -> Dict String EntireAddress -> Result String (Maybe EntirePerson)
+mutate event entity addresses =
     let
         decodeName event =
             getConvertedValue (Json.decodeString nameDecoder) event
@@ -67,11 +79,23 @@ mutatePerson event entity =
             { entity | age = value }
     in
         case event.name of
+            "Person created" ->
+                Ok <| Just entity
+
+            "Person destroyed" ->
+                Ok Nothing
+
             "Person name added" ->
-                updatePropertyValue decodeName setName event entity
+                Result.map Just <| updatePropertyValue decodeName setName event entity
+
+            "Person name removed" ->
+                Ok <| Just <| setName Nothing entity
 
             "Person age added" ->
-                updatePropertyValue getIntValue setAge event entity
+                Result.map Just <| updatePropertyValue getIntValue setAge event entity
+
+            "Person age removed" ->
+                Ok <| Just <| setAge Nothing entity
 
             _ ->
                 Debug.crash <| "You forgot to implement event: " ++ event.name

@@ -3,7 +3,7 @@ module Slate.EventProcessing exposing (..)
 import String exposing (..)
 import Date exposing (..)
 import Utils.Utils exposing (..)
-import Slate.Slate exposing (..)
+import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
 
 
