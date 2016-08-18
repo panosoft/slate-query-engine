@@ -1,6 +1,6 @@
 module Test.App exposing (..)
 
-import Dict exposing (..)
+import Dict exposing (Dict)
 import PersonEntity exposing (..)
 import PersonSchema exposing (..)
 import Utils.Utils exposing (..)
@@ -48,15 +48,15 @@ toPerson entities entire =
         }
 
 
-personQuery : Result (List String) (List String)
-personQuery =
+personQueryTemplate : Result (List String) (List String)
+personQueryTemplate =
     Node { query | schema = Just personSchema, properties = Just [ "name" ] }
         []
         |> buildQueryTemplate
 
 
 test =
-    Debug.log "depthDict" <| personQuery
+    Debug.log "personQueryTemplate" <| personQueryTemplate
 
 
 
