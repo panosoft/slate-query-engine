@@ -1,31 +1,42 @@
-module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace)
+module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict)
 
 import String exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
+import List.Extra as LE exposing (..)
 import Slate.Schema exposing (..)
-import Utils.Utils exposing (filterJust)
 import Regex exposing (HowMany(All, AtMost))
 import Regex.Extra as RE exposing (..)
+import Utils.Utils exposing (..)
 
 
-type alias NodeQuery =
+type alias NodeQuery msg =
     { properties : Maybe (List String)
     , criteria : Maybe String
-    , schema : Maybe EntitySchema
+    , schema : EntitySchema
+    , msg : msg
     }
 
 
-type Query
-    = Node NodeQuery (List Query)
-    | Leaf NodeQuery
+type Query msg
+    = Node (NodeQuery msg) (List (Query msg))
+    | Leaf (NodeQuery msg)
 
 
-query : NodeQuery
-query =
+emptySchema : EntitySchema
+emptySchema =
+    { type' = ""
+    , eventNames = []
+    , properties = []
+    }
+
+
+query : msg -> NodeQuery msg
+query msg =
     { properties = Nothing
     , criteria = Nothing
-    , schema = Nothing
+    , schema = emptySchema
+    , msg = msg
     }
 
 
@@ -34,14 +45,14 @@ query =
     flip Maybe.withDefault
 
 
-depthDict : Query -> Dict Int (List NodeQuery)
+depthDict : Query msg -> Dict Int (List (NodeQuery msg))
 depthDict query =
     let
-        add : NodeQuery -> Int -> Dict Int (List NodeQuery) -> Dict Int (List NodeQuery)
+        add : NodeQuery msg -> Int -> Dict Int (List (NodeQuery msg)) -> Dict Int (List (NodeQuery msg))
         add nodeQuery depth dict =
             Dict.insert depth (nodeQuery :: Dict.get depth dict // []) dict
 
-        addChildren : List Query -> Int -> Dict Int (List NodeQuery) -> Dict Int (List NodeQuery)
+        addChildren : List (Query msg) -> Int -> Dict Int (List (NodeQuery msg)) -> Dict Int (List (NodeQuery msg))
         addChildren children depth dict =
             case children of
                 child :: rest ->
@@ -61,17 +72,7 @@ depthDict query =
         depthDict' query 0 Dict.empty
 
 
-entityName : NodeQuery -> String
-entityName nodeQuery =
-    case nodeQuery.schema of
-        Just schema ->
-            schema.type'
-
-        Nothing ->
-            ""
-
-
-toFlatList : Query -> List NodeQuery
+toFlatList : Query msg -> List (NodeQuery msg)
 toFlatList query =
     case query of
         Node nodeQuery children ->
@@ -81,12 +82,12 @@ toFlatList query =
             [ nodeQuery ]
 
 
-toFlatListMap : (NodeQuery -> a) -> Query -> List a
+toFlatListMap : (NodeQuery msg -> a) -> Query msg -> List a
 toFlatListMap f =
     List.map f << toFlatList
 
 
-toFlatList2 : Query -> List ( NodeQuery, List Query )
+toFlatList2 : Query msg -> List ( NodeQuery msg, List (Query msg) )
 toFlatList2 query =
     case query of
         Node nodeQuery children ->
@@ -96,7 +97,7 @@ toFlatList2 query =
             [ ( nodeQuery, [] ) ]
 
 
-toFlatListMap2 : (NodeQuery -> List Query -> a) -> Query -> List a
+toFlatListMap2 : (NodeQuery msg -> List (Query msg) -> a) -> Query msg -> List a
 toFlatListMap2 f2 =
     List.map (tupToArgs f2) << toFlatList2
 
@@ -106,44 +107,32 @@ tupToArgs f ( a1, a2 ) =
     f a1 a2
 
 
-propertiesCheck : NodeQuery -> List String
+propertiesCheck : NodeQuery msg -> List String
 propertiesCheck nodeQuery =
-    case nodeQuery.schema of
-        Just schema ->
-            let
-                queryProperties =
-                    Set.fromList <| nodeQuery.properties // []
+    if nodeQuery.schema /= emptySchema then
+        let
+            queryProperties =
+                Set.fromList <| nodeQuery.properties // []
 
-                schemaProperties =
-                    Set.fromList <| List.map .name schema.properties
+            schemaProperties =
+                Set.fromList <| List.map .name nodeQuery.schema.properties
 
-                diff =
-                    Set.toList <| Set.diff queryProperties schemaProperties
-            in
-                List.map (flip (++) <| " is not a valid property for " ++ schema.type') diff
-
-        Nothing ->
-            [ "Missing Schema in query node: " ++ (toString nodeQuery) ]
+            diff =
+                Set.toList <| Set.diff queryProperties schemaProperties
+        in
+            List.map (flip (++) <| " is not a valid property for " ++ nodeQuery.schema.type') diff
+    else
+        [ "Missing Schema in query node: " ++ (toString nodeQuery) ]
 
 
-extractEntityName : NodeQuery -> String
-extractEntityName nodeQuery =
-    case nodeQuery.schema of
-        Just schema ->
-            schema.type'
-
-        Nothing ->
-            Debug.crash "Cannot extract entity name - Missing Schema - PROGRAM BUG"
-
-
-validQuery : Query -> List String
+validQuery : Query msg -> List String
 validQuery query =
     let
         propertiesErrors =
             List.concat <| toFlatListMap propertiesCheck query
 
         entityNames =
-            toFlatListMap extractEntityName query
+            toFlatListMap (.schema >> .type') query
     in
         if (Set.size <| Set.fromList entityNames) /= List.length entityNames then
             [ "Query must NOT be cyclic" ]
@@ -151,17 +140,17 @@ validQuery query =
             propertiesErrors
 
 
-extractQueryEntityName : Query -> String
+extractQueryEntityName : Query msg -> String
 extractQueryEntityName query =
     case query of
         Node nodeQuery children ->
-            extractEntityName nodeQuery
+            nodeQuery.schema.type'
 
         Leaf nodeQuery ->
-            extractEntityName nodeQuery
+            nodeQuery.schema.type'
 
 
-extractNodeQuery : Query -> NodeQuery
+extractNodeQuery : Query msg -> NodeQuery msg
 extractNodeQuery query =
     case query of
         Node nodeQuery children ->
@@ -171,12 +160,12 @@ extractNodeQuery query =
             nodeQuery
 
 
-childEntityNames : NodeQuery -> List Query -> ( String, List NodeQuery )
+childEntityNames : NodeQuery msg -> List (Query msg) -> ( String, List (NodeQuery msg) )
 childEntityNames nodeQuery children =
-    ( extractEntityName nodeQuery, List.map extractNodeQuery children )
+    ( nodeQuery.schema.type', List.map extractNodeQuery children )
 
 
-parentChild : Query -> Dict String (List NodeQuery)
+parentChild : Query msg -> Dict String (List (NodeQuery msg))
 parentChild query =
     let
         filter =
@@ -195,10 +184,6 @@ parentChild query =
     in
         Dict.fromList
             parentChild
-
-
-
--- TODO finish
 
 
 {-| clause to be added on first query of set
@@ -263,25 +248,35 @@ parametricReplace prefix suffix template replacements =
         List.foldl (\( param, value ) template -> RE.replace All (buildRegex param) (RE.simpleReplacer value) template) template replacements
 
 
-getEventNames : Dict String (List NodeQuery) -> NodeQuery -> List String
-getEventNames parentChild parent =
+propertySchemaEventNames : NodeQuery msg -> List ( EntitySchema, List String )
+propertySchemaEventNames nodeQuery =
     let
-        properties : List PropertySchema
-        properties =
-            List.concat <| List.map .properties <| Utils.Utils.filterJust [ parent.schema ]
+        unwrap ( SchemaReference schema, eventNames ) =
+            ( schema, eventNames )
+    in
+        List.map unwrap <|
+            filterJust fst (\( s, ns ) us -> ( us, ns )) <|
+                List.map (\p -> ( p.entitySchema, p.eventNames )) nodeQuery.schema.properties
 
-        queryProperties =
-            (parent.properties // [])
 
+getEventNames : NodeQuery msg -> List (NodeQuery msg) -> List String
+getEventNames parent children =
+    let
         propertyEventNames : List String
         propertyEventNames =
-            List.concat <| List.map .eventNames <| List.filter (\property -> List.member property.name (parent.properties // [])) properties
+            List.concat <| List.map .eventNames <| List.filter (\property -> List.member property.name (parent.properties // [])) parent.schema.properties
 
-        entityEventNames : List String
-        entityEventNames =
-            List.concat <| List.map .eventNames <| Utils.Utils.filterJust [ parent.schema ]
+        parentPropertySchemaEventNames =
+            propertySchemaEventNames parent
+
+        findEventNames schema =
+            snd <| (LE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) // ( schema, [] )
+
+        childrenEventNames : List String
+        childrenEventNames =
+            List.concat <| List.map (findEventNames << .schema) children
     in
-        List.concat [ entityEventNames, propertyEventNames ]
+        List.concat [ parent.schema.eventNames, propertyEventNames, childrenEventNames ]
 
 
 templateReplace : String -> List ( String, String ) -> String
@@ -289,17 +284,40 @@ templateReplace =
     parametricReplace "{" "}"
 
 
-buildEntityTemplate : Dict String (List NodeQuery) -> NodeQuery -> String
-buildEntityTemplate parentChild nodeQuery =
+buildMessageDict : Query msg -> Dict String ( msg, String )
+buildMessageDict query =
     let
+        eventNames schema =
+            List.concat [ schema.eventNames, List.concat <| List.map .eventNames schema.properties ]
+
+        addToDict nodeQuery dict =
+            List.foldl (\name dict -> Dict.insert name ( nodeQuery.msg, nodeQuery.schema.type' ) dict) dict <| eventNames nodeQuery.schema
+
+        build query dict =
+            case query of
+                Node nodeQuery children ->
+                    List.foldl (\child dict -> build child dict) (addToDict nodeQuery dict) children
+
+                Leaf nodeQuery ->
+                    addToDict nodeQuery dict
+    in
+        build query Dict.empty
+
+
+buildEntityTemplate : Dict String (List (NodeQuery msg)) -> NodeQuery msg -> String
+buildEntityTemplate parentChild parent =
+    let
+        children =
+            (Dict.get parent.schema.type' parentChild // [])
+
         names =
-            getEventNames parentChild nodeQuery
+            getEventNames parent children
 
         eventNames =
             String.join "," <| List.map (\name -> "'" ++ name ++ "'") names
 
         entityCriteria =
-            nodeQuery.criteria // "1=1"
+            parent.criteria // "1=1"
     in
         templateReplace entityTemplate
             [ ( "eventNames", eventNames )
@@ -307,17 +325,17 @@ buildEntityTemplate parentChild nodeQuery =
             ]
 
 
-buildSqlTemplate : Dict Int (List NodeQuery) -> Dict String (List NodeQuery) -> List String
-buildSqlTemplate queriesAtDepth parentChild =
+buildSqlTemplate : Dict Int (List (NodeQuery msg)) -> Dict String (List (NodeQuery msg)) -> List String
+buildSqlTemplate depthDict parentChild =
     let
         maxDepth =
-            List.length <| Dict.keys queriesAtDepth
+            List.length <| Dict.keys depthDict
 
         build : Int -> List String -> List String
         build depth templates =
             let
-                queries =
-                    Dict.get depth queriesAtDepth // []
+                queriesAtDepth =
+                    Dict.get depth depthDict // []
 
                 maxIdColumn =
                     if depth == 0 then
@@ -332,7 +350,7 @@ buildSqlTemplate queriesAtDepth parentChild =
                         ""
 
                 entityTemplates =
-                    String.join "\n\tOR " <| List.map (buildEntityTemplate parentChild) queries
+                    String.join "\n\tOR " <| List.map (buildEntityTemplate parentChild) queriesAtDepth
 
                 template =
                     templateReplace sqlTemplate
@@ -352,7 +370,7 @@ buildSqlTemplate queriesAtDepth parentChild =
         build (maxDepth - 1) []
 
 
-buildQueryTemplate : Query -> Result (List String) (List String)
+buildQueryTemplate : Query msg -> Result (List String) (List String)
 buildQueryTemplate query =
     let
         errors =
@@ -362,10 +380,7 @@ buildQueryTemplate query =
             Err errors
         else
             let
-                queriesAtDepth =
-                    depthDict query
-
                 parentChildRelationships =
                     parentChild query
             in
-                Ok <| buildSqlTemplate queriesAtDepth parentChildRelationships
+                Ok <| buildSqlTemplate (depthDict query) parentChildRelationships

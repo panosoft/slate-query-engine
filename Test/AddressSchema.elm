@@ -16,32 +16,32 @@ addressSchema =
 
 addressProperties : List PropertySchema
 addressProperties =
-    [ { name = "street"
-      , eventNames =
-            [ "Person street added"
-            , "Person street removed"
+    [ { propSchema
+        | name = "street"
+        , eventNames =
+            [ "Address street added"
+            , "Address street removed"
             ]
-      , owned = False
       }
-    , { name = "city"
-      , eventNames =
-            [ "Person city added"
-            , "Person city removed"
+    , { propSchema
+        | name = "city"
+        , eventNames =
+            [ "Address city added"
+            , "Address city removed"
             ]
-      , owned = False
       }
-    , { name = "state"
-      , eventNames =
-            [ "Person state added"
-            , "Person state removed"
+    , { propSchema
+        | name = "state"
+        , eventNames =
+            [ "Address state added"
+            , "Address state removed"
             ]
-      , owned = False
       }
-    , { name = "zip"
-      , eventNames =
-            [ "Person zip added"
-            , "Person zip removed"
+    , { propSchema
+        | name = "zip"
+        , eventNames =
+            [ "Address zip added"
+            , "Address zip removed"
             ]
-      , owned = False
       }
     ]

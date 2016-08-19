@@ -1,6 +1,7 @@
 module PersonSchema exposing (..)
 
 import Slate.Schema exposing (..)
+import AddressSchema exposing (..)
 
 
 personSchema : EntitySchema
@@ -16,25 +17,27 @@ personSchema =
 
 personProperties : List PropertySchema
 personProperties =
-    [ { name = "name"
-      , eventNames =
+    [ { propSchema
+        | name = "name"
+        , eventNames =
             [ "Person name added"
             , "Person name removed"
             ]
-      , owned = False
       }
-    , { name = "age"
-      , eventNames =
+    , { propSchema
+        | name = "age"
+        , eventNames =
             [ "Person age added"
             , "Person age removed"
             ]
-      , owned = False
       }
-    , { name = "address"
-      , eventNames =
+    , { propSchema
+        | name = "address"
+        , entitySchema = Just <| SchemaReference addressSchema
+        , eventNames =
             [ "Person address added"
             , "Person address removed"
             ]
-      , owned = True
+        , owned = True
       }
     ]

@@ -11,16 +11,21 @@ isNothing maybe =
             True
 
 
-filterJust : List (Maybe a) -> List a
-filterJust maybes =
-    case maybes of
-        maybe :: rest ->
-            case maybe of
+simpleFilterJust : List (Maybe a) -> List a
+simpleFilterJust =
+    filterJust identity (\old new -> new)
+
+
+filterJust : (a -> Maybe b) -> (a -> b -> c) -> List a -> List c
+filterJust accessor replacer list =
+    case list of
+        item :: rest ->
+            case accessor item of
                 Just value ->
-                    value :: filterJust rest
+                    replacer item value :: filterJust accessor replacer rest
 
                 Nothing ->
-                    filterJust rest
+                    filterJust accessor replacer rest
 
         [] ->
             []

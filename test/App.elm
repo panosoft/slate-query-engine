@@ -1,6 +1,5 @@
 module Test.App exposing (..)
 
-import String exposing (..)
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.App
@@ -13,11 +12,13 @@ import Slate.Utils exposing (..)
 import Slate.Query exposing (..)
 import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
+import Slate.Engine exposing (..)
 
 
 type alias Model =
     { persons : Dict String EntirePerson
     , addresses : Dict String EntireAddress
+    , engineModel : Slate.Engine.Model
     }
 
 
@@ -38,6 +39,7 @@ type alias Entities =
 
 type Msg
     = Nop
+    | SlateEngine Slate.Engine.Msg
     | EventError Event String
     | EventProcessingComplete
     | MutationError String String
@@ -57,10 +59,11 @@ initModel =
     Debug.log "initModel" <|
         { persons = Dict.empty
         , addresses = Dict.empty
+        , engineModel = Slate.Engine.initModel
         }
 
 
-init : ( Model, Cmd msg )
+init : ( Model, Cmd Msg )
 init =
     initModel
         ! []
@@ -83,7 +86,14 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Nop ->
-            ( model, Cmd.none )
+            model ! []
+
+        SlateEngine engineMsg ->
+            let
+                ( engineModel, engineCmd, appCmd ) =
+                    Slate.Engine.update engineMsg model.engineModel
+            in
+                { model | engineModel = engineModel } ! [ appCmd, Cmd.map SlateEngine engineCmd ]
 
         MutatePerson event ->
             case PersonEntity.mutate event (lookupEntity model.persons event PersonEntity.entirePersonShell) model.addresses of
@@ -135,24 +145,29 @@ toPerson entities entire =
         }
 
 
-personQueryTemplate : Result (List String) (List String)
+query : NodeQuery Msg
+query =
+    Slate.Query.query Nop
+
+
+personQueryTemplate : Query (Event -> Msg)
 personQueryTemplate =
-    Node { query | schema = Just personSchema, properties = Just [ "name" ] }
-        [ Leaf { query | schema = Just addressSchema, properties = Just [ "street" ] } ]
-        |> buildQueryTemplate
+    Node { query | schema = personSchema, properties = Just [ "name" ], msg = MutatePerson }
+        [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]
 
 
-test =
-    let
-        sql =
-            case personQueryTemplate of
-                Ok cmds ->
-                    String.join "\n" cmds
 
-                Err err ->
-                    String.join "\n" err
-    in
-        Debug.log sql "personQueryTemplate"
+-- test =
+--     let
+--         sql =
+--             case personQueryTemplate of
+--                 Ok cmds ->
+--                     String.join "\n" cmds
+--
+--                 Err err ->
+--                     String.join "\n" err
+--     in
+--         Debug.log sql "personQueryTemplate"
 
 
 emptyEventData =
