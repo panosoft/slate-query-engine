@@ -12,13 +12,17 @@ import Slate.Utils exposing (..)
 import Slate.Query exposing (..)
 import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
-import Slate.Engine exposing (..)
+import Slate.Engine as Engine exposing (..)
+
+
+-- import Postgres.Postgres exposing (..)
 
 
 type alias Model =
     { persons : Dict String EntirePerson
     , addresses : Dict String EntireAddress
-    , engineModel : Slate.Engine.Model
+    , engineModel : Engine.Model Msg
+    , connectionId : Maybe Int
     }
 
 
@@ -39,9 +43,11 @@ type alias Entities =
 
 type Msg
     = Nop
-    | SlateEngine Slate.Engine.Msg
-    | EventError Event String
-    | EventProcessingComplete
+    | SlateEngine Engine.Msg
+    | EventError Event ( Int, String )
+    | ConnectionComplete (Result ( Int, String ) Int)
+    | DisconnectionComplete (Result ( Int, String ) Int)
+    | EventProcessingComplete (Result ( Int, String ) (List Event))
     | MutationError String String
     | MutatePerson Event
     | MutateAddress Event
@@ -56,17 +62,29 @@ eventMsgDispatch =
 
 initModel : Model
 initModel =
-    Debug.log "initModel" <|
-        { persons = Dict.empty
-        , addresses = Dict.empty
-        , engineModel = Slate.Engine.initModel
-        }
+    { persons = Dict.empty
+    , addresses = Dict.empty
+    , engineModel = Engine.initModel "postgresDBServer" 5432 "test" "charles" "testpassword"
+    , connectionId = Nothing
+    }
 
 
 init : ( Model, Cmd Msg )
 init =
-    initModel
-        ! []
+    let
+        result =
+            Engine.executeQuery personQuery ConnectionComplete DisconnectionComplete EventProcessingComplete initModel.engineModel SlateEngine
+    in
+        case result of
+            Ok ( engineModel, cmd ) ->
+                { initModel | engineModel = engineModel } ! [ cmd ]
+
+            Err err ->
+                let
+                    l =
+                        Debug.log "Init error" err
+                in
+                    initModel ! []
 
 
 main : Program Never
@@ -90,10 +108,13 @@ update msg model =
 
         SlateEngine engineMsg ->
             let
-                ( engineModel, engineCmd, appCmd ) =
-                    Slate.Engine.update engineMsg model.engineModel
+                ( engineModel, engineCmd, appMsg ) =
+                    Engine.update engineMsg model.engineModel
+
+                ( newModel, cmd ) =
+                    update (appMsg // Nop) { model | engineModel = engineModel }
             in
-                { model | engineModel = engineModel } ! [ appCmd, Cmd.map SlateEngine engineCmd ]
+                newModel ! [ Cmd.map SlateEngine engineCmd ]
 
         MutatePerson event ->
             case PersonEntity.mutate event (lookupEntity model.persons event PersonEntity.entirePersonShell) model.addresses of
@@ -121,14 +142,60 @@ update msg model =
                 Err err ->
                     update (MutationError "Address" err) model
 
-        EventProcessingComplete ->
-            Debug.log "EventProcessingComplete" <| model ! []
+        ConnectionComplete result ->
+            let
+                l =
+                    Debug.log "ConnectionComplete" result
+            in
+                case result of
+                    Ok connectionId ->
+                        { model | connectionId = Just connectionId } ! []
 
-        EventError event err ->
-            Debug.crash ("Event Processing error: " ++ err ++ " for event:" ++ (toString event)) <| ( model, Cmd.none )
+                    Err ( queryId, err ) ->
+                        let
+                            l =
+                                Debug.crash <| "Connection error: " ++ err ++ " on query: " ++ (toString queryId)
+                        in
+                            model ! []
+
+        DisconnectionComplete result ->
+            let
+                l =
+                    Debug.log "DisconnectionComplete" result
+            in
+                case result of
+                    Ok connectionId ->
+                        { model | connectionId = Nothing } ! []
+
+                    Err ( queryId, err ) ->
+                        let
+                            l =
+                                Debug.crash <| "Disconnection error: " ++ err ++ " on query: " ++ (toString queryId)
+                        in
+                            model ! []
+
+        EventProcessingComplete result ->
+            let
+                l =
+                    Debug.log "EventProcessingComplete" result
+            in
+                model ! []
+
+        EventError event ( queryId, err ) ->
+            let
+                l =
+                    Debug.crash <| "Event Processing error: " ++ err ++ " for event:" ++ (toString event) ++ " on query: " ++ (toString queryId)
+            in
+                model
+                    ! []
 
         MutationError entityType err ->
-            Debug.crash ("Cannot mutate model for entity: " ++ entityType ++ "(" ++ err ++ ")") <| ( model, Cmd.none )
+            let
+                l =
+                    Debug.crash <| "Cannot mutate model for entity: " ++ entityType ++ "(" ++ err ++ ")"
+            in
+                model
+                    ! []
 
 
 {-| convert entire person to person
@@ -150,8 +217,8 @@ query =
     Slate.Query.query Nop
 
 
-personQueryTemplate : Query (Event -> Msg)
-personQueryTemplate =
+personQuery : Query (Event -> Msg)
+personQuery =
     Node { query | schema = personSchema, properties = Just [ "name" ], msg = MutatePerson }
         [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]
 
@@ -201,7 +268,7 @@ testUpdate =
             }
 
         sendEvent event model =
-            Debug.log "new model" <| fst <| update (MutatePerson event) model
+            fst <| update (MutatePerson event) model
     in
         List.foldl sendEvent initModel [ event, event2, event3 ]
 

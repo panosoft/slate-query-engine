@@ -17,5 +17,6 @@ const ports = test.Test.App.worker().ports;
 // // see: Tick message in the update function in Elm
 // ports.testOut.subscribe(time => console.log('time from Elm:', time));
 
+setInterval(_ => null, 5000);
 // this gets printed first
 console.log('done');
