@@ -1,5 +1,8 @@
 // Elm globals
 const E = {
+	A2: A2,
+	A3: A3,
+	A4: A4,
 	Scheduler: {
 		nativeBinding: _elm_lang$core$Native_Scheduler.nativeBinding,
 		succeed:  _elm_lang$core$Native_Scheduler.succeed,
@@ -15,8 +18,10 @@ const E = {
 		Ok: _elm_lang$core$Result$Ok
 	}
 };
+const read = require('stream-read');
 const cmd = require('@panosoft/elm-native-helpers/cmd')(E);
 const pg = require('pg');
+const QueryStream = require('pg-query-stream');
 
 var _user$project$Native_Postgres = function() {
 	const createConnectionUrl = (host, port, database, user, password) => `postgres://${user}:${password}@${host}:${port}/${database}`;
@@ -61,14 +66,40 @@ var _user$project$Native_Postgres = function() {
 			}
 		});
 	};
+	const _startQuery = (dbClient, sql, recordCount, cb) => {
+		const stream = dbClient.client.query(new QueryStream(sql));
+		return _nextQuery(dbClient, stream, recordCount, cb);
+	};
+	const _nextQuery = (dbClient, stream, recordCount, cb) => {
+		var records = [];
+		var count = 0;
+		const processData = (err, data) => {
+			if (err)
+				cb(err);
+			else {
+				if (data)
+					records[records.length] = JSON.stringify(data);
+				if (!data || ++count >= recordCount) {
+					cb(null, stream, records);
+					return;
+				}
+				read(stream, processData);
+			}
+		};
+		read(stream, processData);
+	};
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Cmds
 	const connect = cmd.cmdCall6_1(_connect);
 	const disconnect = cmd.cmdCall2_0(_disconnect, cmd.unwrap({1:'_0'}));
+	const startQuery = cmd.cmdCall3_2(_startQuery, cmd.unwrap({1:'_0'}));
+	const nextQuery = cmd.cmdCall3_2(_nextQuery, cmd.unwrap({1:'_0'}));
 
 	return {
 		connect: F7(connect),
-		disconnect: F3(disconnect)
+		disconnect: F3(disconnect),
+		startQuery: F4(startQuery),
+		nextQuery: F4(nextQuery)
 	};
 
 }();

@@ -1,17 +1,13 @@
 module Slate.Engine exposing (..)
 
 import Dict exposing (..)
-import Slate.Query exposing (buildQueryTemplate, Query)
+import Slate.Query exposing (buildQueryTemplate, Query, MessageDict, AppEventMsg)
 import Slate.Event exposing (..)
 import Postgres.Postgres as Postgres exposing (..)
 
 
-type alias ConnectionMsg msg =
-    Result ( Int, String ) Int -> msg
-
-
-type alias DisconnectionMsg msg =
-    ConnectionMsg msg
+type alias ErrorMsg msg =
+    ( Int, String ) -> msg
 
 
 type alias CompletionMsg msg =
@@ -22,10 +18,10 @@ type alias QueryState msg =
     { currentTemplate : Int
     , templates : List String
     , maxIds : Dict String Int
-    , connectionMsg : ConnectionMsg msg
-    , disconnectionMsg : DisconnectionMsg msg
+    , errorMsg : ErrorMsg msg
     , completionMsg : CompletionMsg msg
     , tagger : Msg -> msg
+    , messageDict : Slate.Query.MessageDict msg
     }
 
 
@@ -58,7 +54,8 @@ type Msg
     | Connect Int Int
     | DisconnectError Int ( Int, String )
     | Disconnect Int Int
-    | Events Int (List Event)
+    | Events Int ( Int, List String )
+    | QueryError Int ( Int, String )
 
 
 getQueryState : Int -> Model msg -> QueryState msg
@@ -75,11 +72,11 @@ getQueryState queryStateId model =
                 Debug.crash <| "Query Id: " ++ (toString queryStateId) ++ " is not in model: " ++ (toString model)
 
 
-update : Msg -> Model msg -> ( Model msg, Cmd Msg, Maybe msg )
+update : Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
 update msg model =
     case msg of
         Nop ->
-            ( model, Cmd.none, Nothing )
+            ( model ! [], [] )
 
         ConnectError queryStateId ( connectionId, error ) ->
             let
@@ -89,7 +86,7 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
             in
-                ( model, Cmd.none, Just <| queryState.connectionMsg <| Err ( queryStateId, error ) )
+                ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
 
         Connect queryStateId connectionId ->
             let
@@ -99,10 +96,12 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
 
+                -- cmd =
+                --     Postgres.disconnect connectionId False (DisconnectError queryStateId) (Disconnect queryStateId)
                 cmd =
-                    Postgres.disconnect connectionId False (DisconnectError queryStateId) (Disconnect queryStateId)
+                    startQuery queryStateId connectionId
             in
-                ( model, cmd, Just <| queryState.connectionMsg <| Ok connectionId )
+                ( model ! [ cmd ], [] )
 
         DisconnectError queryStateId ( connectionId, error ) ->
             let
@@ -112,7 +111,7 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
             in
-                ( model, Cmd.none, Just <| queryState.disconnectionMsg <| Err ( queryStateId, error ) )
+                ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
 
         Disconnect queryStateId connectionId ->
             let
@@ -122,19 +121,53 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
             in
-                ( model, Cmd.none, Just <| queryState.disconnectionMsg <| Ok connectionId )
+                ( model ! [], [] )
 
-        Events id list ->
-            ( model, Cmd.none, Nothing )
+        Events queryStateId ( connectionId, list ) ->
+            let
+                l =
+                    Debug.log "Event" list
+
+                cmd =
+                    if list == [] then
+                        Cmd.none
+                    else
+                        nextQuery queryStateId connectionId
+            in
+                ( model ! [ cmd ], [] )
+
+        QueryError queryStateId ( connectionId, error ) ->
+            let
+                l =
+                    Debug.log "QueryError" ( queryStateId, connectionId, error )
+
+                queryState =
+                    getQueryState queryStateId model
+            in
+                ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
 
 
 
--- startQuery : Int -> Int -> Cmd msg
--- startQuery = queryStateId connectionId
+-- TODO write this (called when connection is complete)
 
 
-executeQuery : Query (Event -> msg) -> ConnectionMsg msg -> DisconnectionMsg msg -> CompletionMsg msg -> Model msg -> (Msg -> msg) -> Result (List String) ( Model msg, Cmd msg )
-executeQuery query connectionMsg disconnectionMsg completionMsg model tagger =
+startQuery : Int -> Int -> Cmd Msg
+startQuery queryStateId connectionId =
+    Postgres.startQuery connectionId "SELECT id FROM events" 10 (QueryError queryStateId) (Events queryStateId)
+
+
+nextQuery : Int -> Int -> Cmd Msg
+nextQuery queryStateId connectionId =
+    Postgres.nextQuery connectionId (QueryError queryStateId) (Events queryStateId)
+
+
+
+-- TODO
+-- closeQUery : Int -> Result String ()
+
+
+executeQuery : Query msg -> ErrorMsg msg -> CompletionMsg msg -> Model msg -> (Msg -> msg) -> Result (List String) ( Model msg, Cmd msg )
+executeQuery query errorMsg completionMsg model tagger =
     let
         result =
             buildQueryTemplate query
@@ -149,10 +182,10 @@ executeQuery query connectionMsg disconnectionMsg completionMsg model tagger =
                         { currentTemplate = 0
                         , templates = templates
                         , maxIds = Dict.empty
-                        , connectionMsg = connectionMsg
-                        , disconnectionMsg = disconnectionMsg
+                        , errorMsg = errorMsg
                         , completionMsg = completionMsg
                         , tagger = tagger
+                        , messageDict = Slate.Query.buildMessageDict query
                         }
 
                     cmd =

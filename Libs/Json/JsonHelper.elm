@@ -1,4 +1,4 @@
-module Json.JsonHelper exposing (..)
+module Json.JsonHelper exposing ((///), (<||))
 
 import Json.Decode as Json exposing ((:=), maybe, string, int, float)
 

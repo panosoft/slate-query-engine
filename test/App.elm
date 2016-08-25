@@ -45,10 +45,10 @@ type Msg
     = Nop
     | SlateEngine Engine.Msg
     | EventError Event ( Int, String )
-    | ConnectionComplete (Result ( Int, String ) Int)
-    | DisconnectionComplete (Result ( Int, String ) Int)
+    | EngineError ( Int, String )
     | EventProcessingComplete (Result ( Int, String ) (List Event))
     | MutationError String String
+    | MissingMutationMsg Event
     | MutatePerson Event
     | MutateAddress Event
 
@@ -73,7 +73,7 @@ init : ( Model, Cmd Msg )
 init =
     let
         result =
-            Engine.executeQuery personQuery ConnectionComplete DisconnectionComplete EventProcessingComplete initModel.engineModel SlateEngine
+            Engine.executeQuery personQuery EngineError EventProcessingComplete initModel.engineModel SlateEngine
     in
         case result of
             Ok ( engineModel, cmd ) ->
@@ -108,11 +108,21 @@ update msg model =
 
         SlateEngine engineMsg ->
             let
-                ( engineModel, engineCmd, appMsg ) =
+                ( ( engineModel, engineCmd ), appMsgs ) =
                     Engine.update engineMsg model.engineModel
 
+                doUpdate msg ( model, cmd ) =
+                    let
+                        ( newModel, newCmd ) =
+                            update msg model
+
+                        cmdBatch =
+                            Cmd.batch [ cmd, newCmd ]
+                    in
+                        ( newModel, cmdBatch )
+
                 ( newModel, cmd ) =
-                    update (appMsg // Nop) { model | engineModel = engineModel }
+                    List.foldl doUpdate ( { model | engineModel = engineModel }, Cmd.none ) appMsgs
             in
                 newModel ! [ Cmd.map SlateEngine engineCmd ]
 
@@ -142,37 +152,12 @@ update msg model =
                 Err err ->
                     update (MutationError "Address" err) model
 
-        ConnectionComplete result ->
+        EngineError ( queryId, err ) ->
             let
                 l =
-                    Debug.log "ConnectionComplete" result
+                    Debug.log "EngineError" ( queryId, err )
             in
-                case result of
-                    Ok connectionId ->
-                        { model | connectionId = Just connectionId } ! []
-
-                    Err ( queryId, err ) ->
-                        let
-                            l =
-                                Debug.crash <| "Connection error: " ++ err ++ " on query: " ++ (toString queryId)
-                        in
-                            model ! []
-
-        DisconnectionComplete result ->
-            let
-                l =
-                    Debug.log "DisconnectionComplete" result
-            in
-                case result of
-                    Ok connectionId ->
-                        { model | connectionId = Nothing } ! []
-
-                    Err ( queryId, err ) ->
-                        let
-                            l =
-                                Debug.crash <| "Disconnection error: " ++ err ++ " on query: " ++ (toString queryId)
-                        in
-                            model ! []
+                model ! []
 
         EventProcessingComplete result ->
             let
@@ -197,6 +182,14 @@ update msg model =
                 model
                     ! []
 
+        MissingMutationMsg event ->
+            let
+                l =
+                    Debug.crash <| "Bad query, missing mutation message for:  " ++ (toString event)
+            in
+                model
+                    ! []
+
 
 {-| convert entire person to person
 -}
@@ -214,10 +207,10 @@ toPerson entities entire =
 
 query : NodeQuery Msg
 query =
-    Slate.Query.query Nop
+    Slate.Query.query MissingMutationMsg
 
 
-personQuery : Query (Event -> Msg)
+personQuery : Query Msg
 personQuery =
     Node { query | schema = personSchema, properties = Just [ "name" ], msg = MutatePerson }
         [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]

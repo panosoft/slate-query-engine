@@ -9328,6 +9328,26 @@ var _user$project$Slate_Schema$SchemaReference = function (a) {
 	return {ctor: 'SchemaReference', _0: a};
 };
 
+var _user$project$Json_JsonHelper_ops = _user$project$Json_JsonHelper_ops || {};
+_user$project$Json_JsonHelper_ops['<||'] = _elm_lang$core$Json_Decode$object2(
+	F2(
+		function (x, y) {
+			return x(y);
+		}));
+var _user$project$Json_JsonHelper_ops = _user$project$Json_JsonHelper_ops || {};
+_user$project$Json_JsonHelper_ops['//'] = _elm_lang$core$Basics$flip(_elm_lang$core$Maybe$withDefault);
+var _user$project$Json_JsonHelper_ops = _user$project$Json_JsonHelper_ops || {};
+_user$project$Json_JsonHelper_ops['///'] = F2(
+	function (decoder, $default) {
+		return A2(
+			_elm_lang$core$Json_Decode$andThen,
+			_elm_lang$core$Json_Decode$maybe(decoder),
+			function (maybe) {
+				return _elm_lang$core$Json_Decode$succeed(
+					A2(_user$project$Json_JsonHelper_ops['//'], maybe, $default));
+			});
+	});
+
 var _user$project$Slate_Event$Event = F3(
 	function (a, b, c) {
 		return {name: a, data: b, metadata: c};
@@ -9336,9 +9356,47 @@ var _user$project$Slate_Event$EventData = F6(
 	function (a, b, c, d, e, f) {
 		return {id: a, value: b, version: c, propertyId: d, oldPosition: e, newPosition: f};
 	});
+var _user$project$Slate_Event$eventDataDecoder = A2(
+	_user$project$Json_JsonHelper_ops['<||'],
+	A2(
+		_user$project$Json_JsonHelper_ops['<||'],
+		A2(
+			_user$project$Json_JsonHelper_ops['<||'],
+			A2(
+				_user$project$Json_JsonHelper_ops['<||'],
+				A2(
+					_user$project$Json_JsonHelper_ops['<||'],
+					A2(
+						_user$project$Json_JsonHelper_ops['<||'],
+						_elm_lang$core$Json_Decode$succeed(_user$project$Slate_Event$EventData),
+						A2(_elm_lang$core$Json_Decode_ops[':='], 'id', _elm_lang$core$Json_Decode$string)),
+					_elm_lang$core$Json_Decode$maybe(
+						A2(_elm_lang$core$Json_Decode_ops[':='], 'value', _elm_lang$core$Json_Decode$string))),
+				_elm_lang$core$Json_Decode$maybe(
+					A2(_elm_lang$core$Json_Decode_ops[':='], 'version', _elm_lang$core$Json_Decode$int))),
+			_elm_lang$core$Json_Decode$maybe(
+				A2(_elm_lang$core$Json_Decode_ops[':='], 'propertyId', _elm_lang$core$Json_Decode$string))),
+		_elm_lang$core$Json_Decode$maybe(
+			A2(_elm_lang$core$Json_Decode_ops[':='], 'oldPosition', _elm_lang$core$Json_Decode$int))),
+	_elm_lang$core$Json_Decode$maybe(
+		A2(_elm_lang$core$Json_Decode_ops[':='], 'newPosition', _elm_lang$core$Json_Decode$int)));
 var _user$project$Slate_Event$Metadata = function (a) {
 	return {command: a};
 };
+var _user$project$Slate_Event$metadataDecoder = A2(
+	_user$project$Json_JsonHelper_ops['<||'],
+	_elm_lang$core$Json_Decode$succeed(_user$project$Slate_Event$Metadata),
+	A2(_elm_lang$core$Json_Decode_ops[':='], 'command', _elm_lang$core$Json_Decode$string));
+var _user$project$Slate_Event$eventDecoder = A2(
+	_user$project$Json_JsonHelper_ops['<||'],
+	A2(
+		_user$project$Json_JsonHelper_ops['<||'],
+		A2(
+			_user$project$Json_JsonHelper_ops['<||'],
+			_elm_lang$core$Json_Decode$succeed(_user$project$Slate_Event$Event),
+			A2(_elm_lang$core$Json_Decode_ops[':='], 'name', _elm_lang$core$Json_Decode$string)),
+		A2(_elm_lang$core$Json_Decode_ops[':='], 'data', _user$project$Slate_Event$eventDataDecoder)),
+	A2(_elm_lang$core$Json_Decode_ops[':='], 'metadata', _user$project$Slate_Event$metadataDecoder));
 
 var _user$project$Utils_Utils$filterOk = function (results) {
 	filterOk:
@@ -9738,28 +9796,11 @@ var _user$project$AddressEntity$EntireAddress = F4(
 		return {street: a, city: b, state: c, zip: d};
 	});
 
-var _user$project$Json_JsonHelper_ops = _user$project$Json_JsonHelper_ops || {};
-_user$project$Json_JsonHelper_ops['<||'] = _elm_lang$core$Json_Decode$object2(
-	F2(
-		function (x, y) {
-			return x(y);
-		}));
-var _user$project$Json_JsonHelper_ops = _user$project$Json_JsonHelper_ops || {};
-_user$project$Json_JsonHelper_ops['//'] = _elm_lang$core$Basics$flip(_elm_lang$core$Maybe$withDefault);
-var _user$project$Json_JsonHelper_ops = _user$project$Json_JsonHelper_ops || {};
-_user$project$Json_JsonHelper_ops['///'] = F2(
-	function (decoder, $default) {
-		return A2(
-			_elm_lang$core$Json_Decode$andThen,
-			_elm_lang$core$Json_Decode$maybe(decoder),
-			function (maybe) {
-				return _elm_lang$core$Json_Decode$succeed(
-					A2(_user$project$Json_JsonHelper_ops['//'], maybe, $default));
-			});
-	});
-
 // Elm globals
 const E = {
+	A2: A2,
+	A3: A3,
+	A4: A4,
 	Scheduler: {
 		nativeBinding: _elm_lang$core$Native_Scheduler.nativeBinding,
 		succeed:  _elm_lang$core$Native_Scheduler.succeed,
@@ -9775,14 +9816,15 @@ const E = {
 		Ok: _elm_lang$core$Result$Ok
 	}
 };
+const read = require('stream-read');
 const cmd = require('@panosoft/elm-native-helpers/cmd')(E);
 const pg = require('pg');
+const QueryStream = require('pg-query-stream');
 
 var _user$project$Native_Postgres = function() {
 	const createConnectionUrl = (host, port, database, user, password) => `postgres://${user}:${password}@${host}:${port}/${database}`;
 
 	const _disconnect = (dbClient, discardConnection, cb) => {
-		console.log(dbClient, discardConnection, cb.toString())
 		try {
 			// pooled client
 			// passing truthy err will destroy client rather than returning client to pool.
@@ -9794,7 +9836,6 @@ var _user$project$Native_Postgres = function() {
 			cb();
 		}
 		catch (err) {
-			console.log(err)
 			cb(err.message);
 		}
 	};
@@ -9823,14 +9864,40 @@ var _user$project$Native_Postgres = function() {
 			}
 		});
 	};
+	const _startQuery = (dbClient, sql, recordCount, cb) => {
+		const stream = dbClient.client.query(new QueryStream(sql));
+		return _nextQuery(dbClient, stream, recordCount, cb);
+	};
+	const _nextQuery = (dbClient, stream, recordCount, cb) => {
+		var records = [];
+		var count = 0;
+		const processData = (err, data) => {
+			if (err)
+				cb(err);
+			else {
+				if (data)
+					records[records.length] = JSON.stringify(data);
+				if (!data || ++count >= recordCount) {
+					cb(null, stream, records);
+					return;
+				}
+				read(stream, processData);
+			}
+		};
+		read(stream, processData);
+	};
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Cmds
 	const connect = cmd.cmdCall6_1(_connect);
 	const disconnect = cmd.cmdCall2_0(_disconnect, cmd.unwrap({1:'_0'}));
+	const startQuery = cmd.cmdCall3_2(_startQuery, cmd.unwrap({1:'_0'}));
+	const nextQuery = cmd.cmdCall3_2(_nextQuery, cmd.unwrap({1:'_0'}));
 
 	return {
 		connect: F7(connect),
-		disconnect: F3(disconnect)
+		disconnect: F3(disconnect),
+		startQuery: F4(startQuery),
+		nextQuery: F4(nextQuery)
 	};
 
 }();
@@ -9952,8 +10019,8 @@ var _user$project$Postgres_Postgres$crash = F2(
 		var crash = _elm_lang$core$Native_Utils.crash(
 			'Postgres.Postgres',
 			{
-				start: {line: 148, column: 13},
-				end: {line: 148, column: 24}
+				start: {line: 252, column: 13},
+				end: {line: 252, column: 24}
 			})(
 			A2(
 				_elm_lang$core$Basics_ops['++'],
@@ -9967,6 +10034,25 @@ var _user$project$Postgres_Postgres$crash = F2(
 						_elm_lang$core$Basics$toString(state)))));
 		return _elm_lang$core$Task$succeed(state);
 	});
+var _user$project$Postgres_Postgres$withConnection = F3(
+	function (state, connectionId, f) {
+		var stateConnection = A2(_elm_lang$core$Dict$get, connectionId, state.connections);
+		var _p0 = stateConnection;
+		if (_p0.ctor === 'Just') {
+			return f(_p0._0);
+		} else {
+			return A2(_user$project$Postgres_Postgres$crash, connectionId, state);
+		}
+	});
+var _user$project$Postgres_Postgres$withTagger = F4(
+	function (state, maybeTagger, connectionId, f) {
+		var _p1 = maybeTagger;
+		if (_p1.ctor === 'Just') {
+			return f(_p1._0);
+		} else {
+			return A2(_user$project$Postgres_Postgres$crash, connectionId, state);
+		}
+	});
 var _user$project$Postgres_Postgres_ops = _user$project$Postgres_Postgres_ops || {};
 _user$project$Postgres_Postgres_ops['&>>'] = F2(
 	function (t1, f) {
@@ -9978,106 +10064,148 @@ _user$project$Postgres_Postgres_ops['&>'] = F2(
 		return A2(
 			_elm_lang$core$Task$andThen,
 			t1,
-			function (_p0) {
+			function (_p2) {
 				return t2;
 			});
 	});
 var _user$project$Postgres_Postgres$onSelfMsg = F3(
 	function (router, selfMsg, state) {
-		var _p1 = selfMsg;
-		switch (_p1.ctor) {
+		var _p3 = selfMsg;
+		switch (_p3.ctor) {
 			case 'SuccessConnect':
-				var _p3 = _p1._0;
-				var stateConnection = A2(_elm_lang$core$Dict$get, _p3, state.connections);
-				var _p2 = stateConnection;
-				if (_p2.ctor === 'Just') {
-					var connection = _elm_lang$core$Native_Utils.update(
-						_p2._0,
+				var _p4 = _p3._0;
+				var process = function (connection) {
+					var newConnection = _elm_lang$core$Native_Utils.update(
+						connection,
 						{
-							client: _elm_lang$core$Maybe$Just(_p1._1)
+							client: _elm_lang$core$Maybe$Just(_p3._1)
 						});
-					return A2(
-						_user$project$Postgres_Postgres_ops['&>'],
-						A2(
-							_elm_lang$core$Platform$sendToApp,
-							router,
-							connection.tagger(_p3)),
-						_elm_lang$core$Task$succeed(
-							_elm_lang$core$Native_Utils.update(
-								state,
-								{
-									nextId: state.nextId + 1,
-									connections: A3(_elm_lang$core$Dict$insert, _p3, connection, state.connections)
-								})));
-				} else {
-					return A2(_user$project$Postgres_Postgres$crash, _p3, state);
-				}
+					var sendToApp = function (tagger) {
+						return A2(
+							_user$project$Postgres_Postgres_ops['&>'],
+							A2(
+								_elm_lang$core$Platform$sendToApp,
+								router,
+								tagger(_p4)),
+							_elm_lang$core$Task$succeed(
+								_elm_lang$core$Native_Utils.update(
+									state,
+									{
+										connections: A3(_elm_lang$core$Dict$insert, _p4, newConnection, state.connections)
+									})));
+					};
+					return A4(_user$project$Postgres_Postgres$withTagger, state, newConnection.connectionTagger, _p4, sendToApp);
+				};
+				return A3(_user$project$Postgres_Postgres$withConnection, state, _p4, process);
 			case 'ErrorConnect':
-				var _p5 = _p1._0;
-				var stateConnection = A2(_elm_lang$core$Dict$get, _p5, state.connections);
-				var _p4 = stateConnection;
-				if (_p4.ctor === 'Just') {
+				var _p5 = _p3._0;
+				var process = function (connection) {
 					return A2(
 						_user$project$Postgres_Postgres_ops['&>'],
 						A2(
 							_elm_lang$core$Platform$sendToApp,
 							router,
-							_p4._0.errorTagger(
-								{ctor: '_Tuple2', _0: _p5, _1: _p1._1})),
+							connection.errorTagger(
+								{ctor: '_Tuple2', _0: _p5, _1: _p3._1})),
 						_elm_lang$core$Task$succeed(
 							_elm_lang$core$Native_Utils.update(
 								state,
 								{
 									connections: A2(_elm_lang$core$Dict$remove, _p5, state.connections)
 								})));
-				} else {
-					return A2(_user$project$Postgres_Postgres$crash, _p5, state);
-				}
+				};
+				return A3(_user$project$Postgres_Postgres$withConnection, state, _p5, process);
 			case 'SuccessDisconnect':
-				var _p7 = _p1._0;
-				var stateConnection = A2(_elm_lang$core$Dict$get, _p7, state.connections);
-				var _p6 = stateConnection;
-				if (_p6.ctor === 'Just') {
+				var _p6 = _p3._0;
+				var process = function (connection) {
+					var sendToApp = function (tagger) {
+						return A2(
+							_user$project$Postgres_Postgres_ops['&>'],
+							A2(
+								_elm_lang$core$Platform$sendToApp,
+								router,
+								tagger(_p6)),
+							_elm_lang$core$Task$succeed(
+								_elm_lang$core$Native_Utils.update(
+									state,
+									{
+										connections: A2(_elm_lang$core$Dict$remove, _p6, state.connections)
+									})));
+					};
+					return A4(_user$project$Postgres_Postgres$withTagger, state, connection.connectionTagger, _p6, sendToApp);
+				};
+				return A3(_user$project$Postgres_Postgres$withConnection, state, _p6, process);
+			case 'ErrorDisconnect':
+				var _p7 = _p3._0;
+				var process = function (connection) {
 					return A2(
 						_user$project$Postgres_Postgres_ops['&>'],
 						A2(
 							_elm_lang$core$Platform$sendToApp,
 							router,
-							_p6._0.tagger(_p7)),
-						_elm_lang$core$Task$succeed(
-							_elm_lang$core$Native_Utils.update(
-								state,
-								{
-									connections: A2(_elm_lang$core$Dict$remove, _p7, state.connections)
-								})));
-				} else {
-					return A2(_user$project$Postgres_Postgres$crash, _p7, state);
-				}
-			default:
-				var _p9 = _p1._0;
-				var stateConnection = A2(_elm_lang$core$Dict$get, _p9, state.connections);
-				var _p8 = stateConnection;
-				if (_p8.ctor === 'Just') {
-					return A2(
-						_user$project$Postgres_Postgres_ops['&>'],
-						A2(
-							_elm_lang$core$Platform$sendToApp,
-							router,
-							_p8._0.errorTagger(
-								{ctor: '_Tuple2', _0: _p9, _1: _p1._1})),
+							connection.errorTagger(
+								{ctor: '_Tuple2', _0: _p7, _1: _p3._1})),
 						_elm_lang$core$Task$succeed(state));
-				} else {
-					return A2(_user$project$Postgres_Postgres$crash, _p9, state);
-				}
+				};
+				return A3(_user$project$Postgres_Postgres$withConnection, state, _p7, process);
+			case 'SuccessQuery':
+				var _p8 = _p3._0;
+				var process = function (connection) {
+					var sendToApp = function (tagger) {
+						return A2(
+							_user$project$Postgres_Postgres_ops['&>'],
+							A2(
+								_elm_lang$core$Platform$sendToApp,
+								router,
+								tagger(
+									{ctor: '_Tuple2', _0: _p8, _1: _p3._2})),
+							_elm_lang$core$Task$succeed(
+								_elm_lang$core$Native_Utils.update(
+									state,
+									{
+										connections: A3(
+											_elm_lang$core$Dict$insert,
+											_p8,
+											_elm_lang$core$Native_Utils.update(
+												connection,
+												{
+													stream: _elm_lang$core$Maybe$Just(_p3._1)
+												}),
+											state.connections)
+									})));
+					};
+					return A4(_user$project$Postgres_Postgres$withTagger, state, connection.queryTagger, _p8, sendToApp);
+				};
+				return A3(_user$project$Postgres_Postgres$withConnection, state, _p8, process);
+			default:
+				var _p9 = _p3._0;
+				var process = function (connection) {
+					return A2(
+						_user$project$Postgres_Postgres_ops['&>'],
+						A2(
+							_elm_lang$core$Platform$sendToApp,
+							router,
+							connection.errorTagger(
+								{
+									ctor: '_Tuple2',
+									_0: _p9,
+									_1: A2(
+										_elm_lang$core$Basics_ops['++'],
+										_p3._2,
+										A2(_elm_lang$core$Basics_ops['++'], '\n\nCommand:\n', _p3._1))
+								})),
+						_elm_lang$core$Task$succeed(state));
+				};
+				return A3(_user$project$Postgres_Postgres$withConnection, state, _p9, process);
 		}
 	});
 var _user$project$Postgres_Postgres$connectionTimeout = 15000;
 var _user$project$Postgres_Postgres_ops = _user$project$Postgres_Postgres_ops || {};
 _user$project$Postgres_Postgres_ops['//'] = _elm_lang$core$Basics$flip(_elm_lang$core$Maybe$withDefault);
 var _user$project$Postgres_Postgres$command = _elm_lang$core$Native_Platform.leaf('Postgres.Postgres');
-var _user$project$Postgres_Postgres$Connection = F3(
-	function (a, b, c) {
-		return {tagger: a, errorTagger: b, client: c};
+var _user$project$Postgres_Postgres$Connection = F7(
+	function (a, b, c, d, e, f, g) {
+		return {connectionTagger: a, queryTagger: b, errorTagger: c, client: d, stream: e, recordCount: f, sql: g};
 	});
 var _user$project$Postgres_Postgres$State = F2(
 	function (a, b) {
@@ -10086,6 +10214,24 @@ var _user$project$Postgres_Postgres$State = F2(
 var _user$project$Postgres_Postgres$init = _elm_lang$core$Task$succeed(
 	A2(_user$project$Postgres_Postgres$State, 0, _elm_lang$core$Dict$empty));
 var _user$project$Postgres_Postgres$Client = {ctor: 'Client'};
+var _user$project$Postgres_Postgres$NextQuery = F3(
+	function (a, b, c) {
+		return {ctor: 'NextQuery', _0: a, _1: b, _2: c};
+	});
+var _user$project$Postgres_Postgres$nextQuery = F3(
+	function (connectionId, errorTagger, tagger) {
+		return _user$project$Postgres_Postgres$command(
+			A3(_user$project$Postgres_Postgres$NextQuery, connectionId, errorTagger, tagger));
+	});
+var _user$project$Postgres_Postgres$StartQuery = F5(
+	function (a, b, c, d, e) {
+		return {ctor: 'StartQuery', _0: a, _1: b, _2: c, _3: d, _4: e};
+	});
+var _user$project$Postgres_Postgres$startQuery = F5(
+	function (connectionId, sql, recordCount, errorTagger, tagger) {
+		return _user$project$Postgres_Postgres$command(
+			A5(_user$project$Postgres_Postgres$StartQuery, connectionId, sql, recordCount, errorTagger, tagger));
+	});
 var _user$project$Postgres_Postgres$Disconnect = F4(
 	function (a, b, c, d) {
 		return {ctor: 'Disconnect', _0: a, _1: b, _2: c, _3: d};
@@ -10102,41 +10248,77 @@ var _user$project$Postgres_Postgres$Connect = F7(
 var _user$project$Postgres_Postgres$cmdMap = F2(
 	function (f, cmd) {
 		var _p10 = cmd;
-		if (_p10.ctor === 'Connect') {
-			return A7(
-				_user$project$Postgres_Postgres$Connect,
-				_p10._0,
-				_p10._1,
-				_p10._2,
-				_p10._3,
-				_p10._4,
-				function (_p11) {
-					return f(
-						_p10._5(_p11));
-				},
-				function (_p12) {
-					return f(
-						_p10._6(_p12));
-				});
-		} else {
-			return A4(
-				_user$project$Postgres_Postgres$Disconnect,
-				_p10._0,
-				_p10._1,
-				function (_p13) {
-					return f(
-						_p10._2(_p13));
-				},
-				function (_p14) {
-					return f(
-						_p10._3(_p14));
-				});
+		switch (_p10.ctor) {
+			case 'Connect':
+				return A7(
+					_user$project$Postgres_Postgres$Connect,
+					_p10._0,
+					_p10._1,
+					_p10._2,
+					_p10._3,
+					_p10._4,
+					function (_p11) {
+						return f(
+							_p10._5(_p11));
+					},
+					function (_p12) {
+						return f(
+							_p10._6(_p12));
+					});
+			case 'Disconnect':
+				return A4(
+					_user$project$Postgres_Postgres$Disconnect,
+					_p10._0,
+					_p10._1,
+					function (_p13) {
+						return f(
+							_p10._2(_p13));
+					},
+					function (_p14) {
+						return f(
+							_p10._3(_p14));
+					});
+			case 'StartQuery':
+				return A5(
+					_user$project$Postgres_Postgres$StartQuery,
+					_p10._0,
+					_p10._1,
+					_p10._2,
+					function (_p15) {
+						return f(
+							_p10._3(_p15));
+					},
+					function (_p16) {
+						return f(
+							_p10._4(_p16));
+					});
+			default:
+				return A3(
+					_user$project$Postgres_Postgres$NextQuery,
+					_p10._0,
+					function (_p17) {
+						return f(
+							_p10._1(_p17));
+					},
+					function (_p18) {
+						return f(
+							_p10._2(_p18));
+					});
 		}
 	});
 var _user$project$Postgres_Postgres$connect = F7(
 	function (host, port$, database, user, password, errorTagger, tagger) {
 		return _user$project$Postgres_Postgres$command(
 			A7(_user$project$Postgres_Postgres$Connect, host, port$, database, user, password, errorTagger, tagger));
+	});
+var _user$project$Postgres_Postgres$Stream = {ctor: 'Stream'};
+var _user$project$Postgres_Postgres$ErrorQuery = F3(
+	function (a, b, c) {
+		return {ctor: 'ErrorQuery', _0: a, _1: b, _2: c};
+	});
+var _user$project$Postgres_Postgres$SuccessQuery = F3(
+	function (a, b, c) {
+		return {ctor: 'SuccessQuery', _0: a, _1: b, _2: c};
 	});
 var _user$project$Postgres_Postgres$ErrorDisconnect = F2(
 	function (a, b) {
@@ -10155,6 +10337,35 @@ var _user$project$Postgres_Postgres$SuccessConnect = F2(
 	});
 var _user$project$Postgres_Postgres$handleCmd = F3(
 	function (router, state, cmd) {
+		var updateConnection = F2(
+			function (connectionId, newConnection) {
+				return _elm_lang$core$Task$succeed(
+					_elm_lang$core$Native_Utils.update(
+						state,
+						{
+							connections: A3(_elm_lang$core$Dict$insert, connectionId, newConnection, state.connections)
+						}));
+			});
+		var invalidConnectionId = F2(
+			function (errorTagger, connectionId) {
+				return A2(
+					_user$project$Postgres_Postgres_ops['&>'],
+					A2(
+						_elm_lang$core$Platform$sendToApp,
+						router,
+						errorTagger(
+							{ctor: '_Tuple2', _0: connectionId, _1: 'Invalid connectionId'})),
+					_elm_lang$core$Task$succeed(state));
+			});
+		var toTask = F3(
+			function (maybeTask, connectionId, errorTagger) {
+				var _p19 = maybeTask;
+				if (_p19.ctor === 'Just') {
+					return _p19._0;
+				} else {
+					return A2(invalidConnectionId, errorTagger, connectionId);
+				}
+			});
 		var settings2 = F2(
 			function (errorTagger, tagger) {
 				return {
@@ -10193,7 +10404,7 @@ var _user$project$Postgres_Postgres$handleCmd = F3(
 		var settings0 = F2(
 			function (errorTagger, tagger) {
 				return {
-					onSuccess: function (_p15) {
+					onSuccess: function (_p20) {
 						return A2(_elm_lang$core$Platform$sendToSelf, router, tagger);
 					},
 					onError: function (err) {
@@ -10204,73 +10415,160 @@ var _user$project$Postgres_Postgres$handleCmd = F3(
 					}
 				};
 			});
-		var _p16 = cmd;
-		if (_p16.ctor === 'Connect') {
-			var connectionId = state.nextId;
-			return A2(
-				_user$project$Postgres_Postgres_ops['&>'],
-				A7(
-					_user$project$Native_Postgres.connect,
-					A2(
-						settings1,
-						_user$project$Postgres_Postgres$ErrorConnect(connectionId),
-						_user$project$Postgres_Postgres$SuccessConnect(connectionId)),
-					_user$project$Postgres_Postgres$connectionTimeout,
-					_p16._0,
-					_p16._1,
-					_p16._2,
-					_p16._3,
-					_p16._4),
-				_elm_lang$core$Task$succeed(
-					_elm_lang$core$Native_Utils.update(
-						state,
-						{
-							nextId: state.nextId + 1,
-							connections: A3(
-								_elm_lang$core$Dict$insert,
-								connectionId,
-								{tagger: _p16._6, errorTagger: _p16._5, client: _elm_lang$core$Maybe$Nothing},
-								state.connections)
-						})));
-		} else {
-			var _p20 = _p16._2;
-			var _p19 = _p16._0;
-			var maybeConnection = A2(_elm_lang$core$Dict$get, _p19, state.connections);
-			var _p17 = maybeConnection;
-			if (_p17.ctor === 'Just') {
-				var _p18 = _p17._0;
+		var _p21 = cmd;
+		switch (_p21.ctor) {
+			case 'Connect':
+				var connection = A7(
+					_user$project$Postgres_Postgres$Connection,
+					_elm_lang$core$Maybe$Just(_p21._6),
+					_elm_lang$core$Maybe$Nothing,
+					_p21._5,
+					_elm_lang$core$Maybe$Nothing,
+					_elm_lang$core$Maybe$Nothing,
+					_elm_lang$core$Maybe$Nothing,
+					_elm_lang$core$Maybe$Nothing);
+				var connectionId = state.nextId;
 				return A2(
 					_user$project$Postgres_Postgres_ops['&>'],
-					A3(
-						_user$project$Native_Postgres.disconnect,
+					A7(
+						_user$project$Native_Postgres.connect,
 						A2(
-							settings0,
-							_user$project$Postgres_Postgres$ErrorDisconnect(_p19),
-							_user$project$Postgres_Postgres$SuccessDisconnect(_p19)),
-						_p18.client,
-						_p16._1),
+							settings1,
+							_user$project$Postgres_Postgres$ErrorConnect(connectionId),
+							_user$project$Postgres_Postgres$SuccessConnect(connectionId)),
+						_user$project$Postgres_Postgres$connectionTimeout,
+						_p21._0,
+						_p21._1,
+						_p21._2,
+						_p21._3,
+						_p21._4),
 					_elm_lang$core$Task$succeed(
 						_elm_lang$core$Native_Utils.update(
 							state,
 							{
-								connections: A3(
-									_elm_lang$core$Dict$insert,
-									_p19,
-									_elm_lang$core$Native_Utils.update(
-										_p18,
-										{tagger: _p16._3, errorTagger: _p20}),
-									state.connections)
+								nextId: state.nextId + 1,
+								connections: A3(_elm_lang$core$Dict$insert, connectionId, connection, state.connections)
 							})));
-			} else {
-				return A2(
-					_user$project$Postgres_Postgres_ops['&>'],
-					A2(
-						_elm_lang$core$Platform$sendToApp,
-						router,
-						_p20(
-							{ctor: '_Tuple2', _0: _p19, _1: 'Invalid connectionId'})),
-					_elm_lang$core$Task$succeed(state));
-			}
+			case 'Disconnect':
+				var _p23 = _p21._2;
+				var _p22 = _p21._0;
+				var maybeTask = A2(
+					_elm_lang$core$Maybe$map,
+					function (connection) {
+						return A2(
+							_user$project$Postgres_Postgres_ops['&>'],
+							A3(
+								_user$project$Native_Postgres.disconnect,
+								A2(
+									settings0,
+									_user$project$Postgres_Postgres$ErrorDisconnect(_p22),
+									_user$project$Postgres_Postgres$SuccessDisconnect(_p22)),
+								connection.client,
+								_p21._1),
+							A2(
+								updateConnection,
+								_p22,
+								_elm_lang$core$Native_Utils.update(
+									connection,
+									{
+										connectionTagger: _elm_lang$core$Maybe$Just(_p21._3),
+										errorTagger: _p23
+									})));
+					},
+					A2(_elm_lang$core$Dict$get, _p22, state.connections));
+				return A3(toTask, maybeTask, _p22, _p23);
+			case 'StartQuery':
+				var _p27 = _p21._1;
+				var _p26 = _p21._2;
+				var _p25 = _p21._3;
+				var _p24 = _p21._0;
+				var maybeTask = A2(
+					_elm_lang$core$Maybe$map,
+					function (connection) {
+						return A2(
+							_user$project$Postgres_Postgres_ops['&>'],
+							A4(
+								_user$project$Native_Postgres.startQuery,
+								A2(
+									settings2,
+									A2(_user$project$Postgres_Postgres$ErrorQuery, _p24, _p27),
+									_user$project$Postgres_Postgres$SuccessQuery(_p24)),
+								connection.client,
+								_p27,
+								_p26),
+							A2(
+								updateConnection,
+								_p24,
+								_elm_lang$core$Native_Utils.update(
+									connection,
+									{
+										sql: _elm_lang$core$Maybe$Just(_p27),
+										recordCount: _elm_lang$core$Maybe$Just(_p26),
+										queryTagger: _elm_lang$core$Maybe$Just(_p21._4),
+										errorTagger: _p25
+									})));
+					},
+					A2(_elm_lang$core$Dict$get, _p24, state.connections));
+				return A3(toTask, maybeTask, _p24, _p25);
+			default:
+				var _p30 = _p21._0;
+				var maybeTask = A2(
+					_elm_lang$core$Maybe$map,
+					function (connection) {
+						var stream = function () {
+							var _p28 = connection.stream;
+							if (_p28.ctor === 'Just') {
+								return _p28._0;
+							} else {
+								return A2(
+									_elm_lang$core$Native_Utils.crash(
+										'Postgres.Postgres',
+										{
+											start: {line: 224, column: 49},
+											end: {line: 224, column: 60}
+										}),
+									A2(
+										_elm_lang$core$Basics_ops['++'],
+										'Missing Stream connectionId: ',
+										_elm_lang$core$Basics$toString(_p30)),
+									_user$project$Postgres_Postgres$Stream);
+							}
+						}();
+						var recordCount = function () {
+							var _p29 = connection.recordCount;
+							if (_p29.ctor === 'Just') {
+								return _p29._0;
+							} else {
+								return A2(
+									_elm_lang$core$Native_Utils.crash(
+										'Postgres.Postgres',
+										{
+											start: {line: 216, column: 49},
+											end: {line: 216, column: 60}
+										}),
+									A2(
+										_elm_lang$core$Basics_ops['++'],
+										'Missing Record Count connectionId: ',
+										_elm_lang$core$Basics$toString(_p30)),
+									0);
+							}
+						}();
+						var sql = A2(_user$project$Postgres_Postgres_ops['//'], connection.sql, 'UNKNOWN SQL');
+						return A2(
+							_user$project$Postgres_Postgres_ops['&>'],
+							A4(
+								_user$project$Native_Postgres.nextQuery,
+								A2(
+									settings2,
+									A2(_user$project$Postgres_Postgres$ErrorQuery, _p30, sql),
+									_user$project$Postgres_Postgres$SuccessQuery(_p30)),
+								connection.client,
+								stream,
+								recordCount),
+							_elm_lang$core$Task$succeed(state));
+					},
+					A2(_elm_lang$core$Dict$get, _p30, state.connections));
+				return A3(toTask, maybeTask, _p30, _p21._1);
 		}
 	});
 var _user$project$Postgres_Postgres$onEffects = F3(
@@ -10854,8 +11152,8 @@ var _user$project$Slate_Engine$getQueryState = F2(
 			return _elm_lang$core$Native_Utils.crashCase(
 				'Slate.Engine',
 				{
-					start: {line: 70, column: 9},
-					end: {line: 75, column: 115}
+					start: {line: 67, column: 9},
+					end: {line: 72, column: 115}
 				},
 				_p0)(
 				A2(
@@ -10876,30 +11174,53 @@ var _user$project$Slate_Engine$initModel = F5(
 	});
 var _user$project$Slate_Engine$QueryState = F7(
 	function (a, b, c, d, e, f, g) {
-		return {currentTemplate: a, templates: b, maxIds: c, connectionMsg: d, disconnectionMsg: e, completionMsg: f, tagger: g};
+		return {currentTemplate: a, templates: b, maxIds: c, errorMsg: d, completionMsg: e, tagger: f, messageDict: g};
 	});
 var _user$project$Slate_Engine$Model = F7(
 	function (a, b, c, d, e, f, g) {
 		return {nextId: a, queryStates: b, host: c, port$: d, database: e, user: f, password: g};
 	});
+var _user$project$Slate_Engine$QueryError = F2(
+	function (a, b) {
+		return {ctor: 'QueryError', _0: a, _1: b};
+	});
 var _user$project$Slate_Engine$Events = F2(
 	function (a, b) {
 		return {ctor: 'Events', _0: a, _1: b};
 	});
-var _user$project$Slate_Engine$Disconnect = F2(
-	function (a, b) {
-		return {ctor: 'Disconnect', _0: a, _1: b};
+var _user$project$Slate_Engine$startQuery = F2(
+	function (queryStateId, connectionId) {
+		return A5(
+			_user$project$Postgres_Postgres$startQuery,
+			connectionId,
+			'SELECT id FROM events',
+			10,
+			_user$project$Slate_Engine$QueryError(queryStateId),
+			_user$project$Slate_Engine$Events(queryStateId));
 	});
-var _user$project$Slate_Engine$DisconnectError = F2(
-	function (a, b) {
-		return {ctor: 'DisconnectError', _0: a, _1: b};
+var _user$project$Slate_Engine$nextQuery = F2(
+	function (queryStateId, connectionId) {
+		return A3(
+			_user$project$Postgres_Postgres$nextQuery,
+			connectionId,
+			_user$project$Slate_Engine$QueryError(queryStateId),
+			_user$project$Slate_Engine$Events(queryStateId));
 	});
 var _user$project$Slate_Engine$update = F2(
 	function (msg, model) {
 		var _p2 = msg;
 		switch (_p2.ctor) {
 			case 'Nop':
-				return {ctor: '_Tuple3', _0: model, _1: _elm_lang$core$Platform_Cmd$none, _2: _elm_lang$core$Maybe$Nothing};
+				return {
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[])
+				};
 			case 'ConnectError':
 				var _p4 = _p2._0;
 				var _p3 = _p2._1._1;
@@ -10909,35 +11230,36 @@ var _user$project$Slate_Engine$update = F2(
 					'ConnectError',
 					{ctor: '_Tuple3', _0: _p4, _1: _p2._1._0, _2: _p3});
 				return {
-					ctor: '_Tuple3',
-					_0: model,
-					_1: _elm_lang$core$Platform_Cmd$none,
-					_2: _elm_lang$core$Maybe$Just(
-						queryState.connectionMsg(
-							_elm_lang$core$Result$Err(
-								{ctor: '_Tuple2', _0: _p4, _1: _p3})))
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[
+							queryState.errorMsg(
+							{ctor: '_Tuple2', _0: _p4, _1: _p3})
+						])
 				};
 			case 'Connect':
 				var _p6 = _p2._0;
 				var _p5 = _p2._1;
-				var cmd = A4(
-					_user$project$Postgres_Postgres$disconnect,
-					_p5,
-					false,
-					_user$project$Slate_Engine$DisconnectError(_p6),
-					_user$project$Slate_Engine$Disconnect(_p6));
+				var cmd = A2(_user$project$Slate_Engine$startQuery, _p6, _p5);
 				var queryState = A2(_user$project$Slate_Engine$getQueryState, _p6, model);
 				var l = A2(
 					_elm_lang$core$Debug$log,
 					'Connect',
 					{ctor: '_Tuple2', _0: _p6, _1: _p5});
 				return {
-					ctor: '_Tuple3',
-					_0: model,
-					_1: cmd,
-					_2: _elm_lang$core$Maybe$Just(
-						queryState.connectionMsg(
-							_elm_lang$core$Result$Ok(_p5)))
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[cmd])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[])
 				};
 			case 'DisconnectError':
 				var _p8 = _p2._0;
@@ -10948,33 +11270,82 @@ var _user$project$Slate_Engine$update = F2(
 					'DisconnectError',
 					{ctor: '_Tuple3', _0: _p8, _1: _p2._1._0, _2: _p7});
 				return {
-					ctor: '_Tuple3',
-					_0: model,
-					_1: _elm_lang$core$Platform_Cmd$none,
-					_2: _elm_lang$core$Maybe$Just(
-						queryState.disconnectionMsg(
-							_elm_lang$core$Result$Err(
-								{ctor: '_Tuple2', _0: _p8, _1: _p7})))
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[
+							queryState.errorMsg(
+							{ctor: '_Tuple2', _0: _p8, _1: _p7})
+						])
 				};
 			case 'Disconnect':
-				var _p10 = _p2._0;
-				var _p9 = _p2._1;
-				var queryState = A2(_user$project$Slate_Engine$getQueryState, _p10, model);
+				var _p9 = _p2._0;
+				var queryState = A2(_user$project$Slate_Engine$getQueryState, _p9, model);
 				var l = A2(
 					_elm_lang$core$Debug$log,
 					'Disconnect',
-					{ctor: '_Tuple2', _0: _p10, _1: _p9});
+					{ctor: '_Tuple2', _0: _p9, _1: _p2._1});
 				return {
-					ctor: '_Tuple3',
-					_0: model,
-					_1: _elm_lang$core$Platform_Cmd$none,
-					_2: _elm_lang$core$Maybe$Just(
-						queryState.disconnectionMsg(
-							_elm_lang$core$Result$Ok(_p9)))
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[])
+				};
+			case 'Events':
+				var _p10 = _p2._1._1;
+				var cmd = _elm_lang$core$Native_Utils.eq(
+					_p10,
+					_elm_lang$core$Native_List.fromArray(
+						[])) ? _elm_lang$core$Platform_Cmd$none : A2(_user$project$Slate_Engine$nextQuery, _p2._0, _p2._1._0);
+				var l = A2(_elm_lang$core$Debug$log, 'Event', _p10);
+				return {
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[cmd])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[])
 				};
 			default:
-				return {ctor: '_Tuple3', _0: model, _1: _elm_lang$core$Platform_Cmd$none, _2: _elm_lang$core$Maybe$Nothing};
+				var _p12 = _p2._0;
+				var _p11 = _p2._1._1;
+				var queryState = A2(_user$project$Slate_Engine$getQueryState, _p12, model);
+				var l = A2(
+					_elm_lang$core$Debug$log,
+					'QueryError',
+					{ctor: '_Tuple3', _0: _p12, _1: _p2._1._0, _2: _p11});
+				return {
+					ctor: '_Tuple2',
+					_0: A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[])),
+					_1: _elm_lang$core$Native_List.fromArray(
+						[
+							queryState.errorMsg(
+							{ctor: '_Tuple2', _0: _p12, _1: _p11})
+						])
+				};
 		}
+	});
+var _user$project$Slate_Engine$Disconnect = F2(
+	function (a, b) {
+		return {ctor: 'Disconnect', _0: a, _1: b};
+	});
+var _user$project$Slate_Engine$DisconnectError = F2(
+	function (a, b) {
+		return {ctor: 'DisconnectError', _0: a, _1: b};
 	});
 var _user$project$Slate_Engine$Connect = F2(
 	function (a, b) {
@@ -10984,12 +11355,20 @@ var _user$project$Slate_Engine$ConnectError = F2(
 	function (a, b) {
 		return {ctor: 'ConnectError', _0: a, _1: b};
 	});
-var _user$project$Slate_Engine$executeQuery = F6(
-	function (query, connectionMsg, disconnectionMsg, completionMsg, model, tagger) {
+var _user$project$Slate_Engine$executeQuery = F5(
+	function (query, errorMsg, completionMsg, model, tagger) {
 		var result = _user$project$Slate_Query$buildQueryTemplate(query);
-		var _p11 = result;
-		if (_p11.ctor === 'Ok') {
-			var queryState = {currentTemplate: 0, templates: _p11._0, maxIds: _elm_lang$core$Dict$empty, connectionMsg: connectionMsg, disconnectionMsg: disconnectionMsg, completionMsg: completionMsg, tagger: tagger};
+		var _p13 = result;
+		if (_p13.ctor === 'Ok') {
+			var queryState = {
+				currentTemplate: 0,
+				templates: _p13._0,
+				maxIds: _elm_lang$core$Dict$empty,
+				errorMsg: errorMsg,
+				completionMsg: completionMsg,
+				tagger: tagger,
+				messageDict: _user$project$Slate_Query$buildMessageDict(query)
+			};
 			var queryStateId = model.nextId;
 			var cmd = A7(
 				_user$project$Postgres_Postgres$connect,
@@ -10998,13 +11377,13 @@ var _user$project$Slate_Engine$executeQuery = F6(
 				model.database,
 				model.user,
 				model.password,
-				function (_p12) {
+				function (_p14) {
 					return tagger(
-						A2(_user$project$Slate_Engine$ConnectError, queryStateId, _p12));
+						A2(_user$project$Slate_Engine$ConnectError, queryStateId, _p14));
 				},
-				function (_p13) {
+				function (_p15) {
 					return tagger(
-						A2(_user$project$Slate_Engine$Connect, queryStateId, _p13));
+						A2(_user$project$Slate_Engine$Connect, queryStateId, _p15));
 				});
 			return _elm_lang$core$Result$Ok(
 				{
@@ -11018,7 +11397,7 @@ var _user$project$Slate_Engine$executeQuery = F6(
 					_1: cmd
 				});
 		} else {
-			return _elm_lang$core$Result$Err(_p11._0);
+			return _elm_lang$core$Result$Err(_p13._0);
 		}
 	});
 var _user$project$Slate_Engine$Nop = {ctor: 'Nop'};
@@ -11084,6 +11463,34 @@ var _user$project$Test_App$eventMsgDispatch = _elm_lang$core$Native_List.fromArr
 		{ctor: '_Tuple2', _0: _user$project$Test_App$MutatePerson, _1: _user$project$PersonEntity$eventMap},
 		{ctor: '_Tuple2', _0: _user$project$Test_App$MutateAddress, _1: _user$project$AddressEntity$eventMap}
 	]);
+var _user$project$Test_App$MissingMutationMsg = function (a) {
+	return {ctor: 'MissingMutationMsg', _0: a};
+};
+var _user$project$Test_App$query = _user$project$Slate_Query$query(_user$project$Test_App$MissingMutationMsg);
+var _user$project$Test_App$personQuery = A2(
+	_user$project$Slate_Query$Node,
+	_elm_lang$core$Native_Utils.update(
+		_user$project$Test_App$query,
+		{
+			schema: _user$project$PersonSchema$personSchema,
+			properties: _elm_lang$core$Maybe$Just(
+				_elm_lang$core$Native_List.fromArray(
+					['name'])),
+			msg: _user$project$Test_App$MutatePerson
+		}),
+	_elm_lang$core$Native_List.fromArray(
+		[
+			_user$project$Slate_Query$Leaf(
+			_elm_lang$core$Native_Utils.update(
+				_user$project$Test_App$query,
+				{
+					schema: _user$project$AddressSchema$addressSchema,
+					properties: _elm_lang$core$Maybe$Just(
+						_elm_lang$core$Native_List.fromArray(
+							['street'])),
+					msg: _user$project$Test_App$MutateAddress
+				}))
+		]));
 var _user$project$Test_App$MutationError = F2(
 	function (a, b) {
 		return {ctor: 'MutationError', _0: a, _1: b};
@@ -11091,11 +11498,8 @@ var _user$project$Test_App$MutationError = F2(
 var _user$project$Test_App$EventProcessingComplete = function (a) {
 	return {ctor: 'EventProcessingComplete', _0: a};
 };
-var _user$project$Test_App$DisconnectionComplete = function (a) {
-	return {ctor: 'DisconnectionComplete', _0: a};
-};
-var _user$project$Test_App$ConnectionComplete = function (a) {
-	return {ctor: 'ConnectionComplete', _0: a};
+var _user$project$Test_App$EngineError = function (a) {
+	return {ctor: 'EngineError', _0: a};
 };
 var _user$project$Test_App$EventError = F2(
 	function (a, b) {
@@ -11104,13 +11508,32 @@ var _user$project$Test_App$EventError = F2(
 var _user$project$Test_App$SlateEngine = function (a) {
 	return {ctor: 'SlateEngine', _0: a};
 };
-var _user$project$Test_App$Nop = {ctor: 'Nop'};
+var _user$project$Test_App$init = function () {
+	var result = A5(_user$project$Slate_Engine$executeQuery, _user$project$Test_App$personQuery, _user$project$Test_App$EngineError, _user$project$Test_App$EventProcessingComplete, _user$project$Test_App$initModel.engineModel, _user$project$Test_App$SlateEngine);
+	var _p0 = result;
+	if (_p0.ctor === 'Ok') {
+		return A2(
+			_elm_lang$core$Platform_Cmd_ops['!'],
+			_elm_lang$core$Native_Utils.update(
+				_user$project$Test_App$initModel,
+				{engineModel: _p0._0._0}),
+			_elm_lang$core$Native_List.fromArray(
+				[_p0._0._1]));
+	} else {
+		var l = A2(_elm_lang$core$Debug$log, 'Init error', _p0._0);
+		return A2(
+			_elm_lang$core$Platform_Cmd_ops['!'],
+			_user$project$Test_App$initModel,
+			_elm_lang$core$Native_List.fromArray(
+				[]));
+	}
+}();
 var _user$project$Test_App$update = F2(
 	function (msg, model) {
 		update:
 		while (true) {
-			var _p0 = msg;
-			switch (_p0.ctor) {
+			var _p1 = msg;
+			switch (_p1.ctor) {
 				case 'Nop':
 					return A2(
 						_elm_lang$core$Platform_Cmd_ops['!'],
@@ -11118,18 +11541,34 @@ var _user$project$Test_App$update = F2(
 						_elm_lang$core$Native_List.fromArray(
 							[]));
 				case 'SlateEngine':
-					var _p1 = A2(_user$project$Slate_Engine$update, _p0._0, model.engineModel);
-					var engineModel = _p1._0;
-					var engineCmd = _p1._1;
-					var appMsg = _p1._2;
-					var _p2 = A2(
-						_user$project$Test_App$update,
-						A2(_user$project$Test_App_ops['//'], appMsg, _user$project$Test_App$Nop),
-						_elm_lang$core$Native_Utils.update(
-							model,
-							{engineModel: engineModel}));
-					var newModel = _p2._0;
-					var cmd = _p2._1;
+					var doUpdate = F2(
+						function (msg, _p2) {
+							var _p3 = _p2;
+							var _p4 = A2(_user$project$Test_App$update, msg, _p3._0);
+							var newModel = _p4._0;
+							var newCmd = _p4._1;
+							var cmdBatch = _elm_lang$core$Platform_Cmd$batch(
+								_elm_lang$core$Native_List.fromArray(
+									[_p3._1, newCmd]));
+							return {ctor: '_Tuple2', _0: newModel, _1: cmdBatch};
+						});
+					var _p5 = A2(_user$project$Slate_Engine$update, _p1._0, model.engineModel);
+					var engineModel = _p5._0._0;
+					var engineCmd = _p5._0._1;
+					var appMsgs = _p5._1;
+					var _p6 = A3(
+						_elm_lang$core$List$foldl,
+						doUpdate,
+						{
+							ctor: '_Tuple2',
+							_0: _elm_lang$core$Native_Utils.update(
+								model,
+								{engineModel: engineModel}),
+							_1: _elm_lang$core$Platform_Cmd$none
+						},
+						appMsgs);
+					var newModel = _p6._0;
+					var cmd = _p6._1;
 					return A2(
 						_elm_lang$core$Platform_Cmd_ops['!'],
 						newModel,
@@ -11138,21 +11577,21 @@ var _user$project$Test_App$update = F2(
 								A2(_elm_lang$core$Platform_Cmd$map, _user$project$Test_App$SlateEngine, engineCmd)
 							]));
 				case 'MutatePerson':
-					var _p5 = _p0._0;
-					var _p3 = A3(
+					var _p9 = _p1._0;
+					var _p7 = A3(
 						_user$project$PersonEntity$mutate,
-						_p5,
-						A3(_user$project$Slate_Reference$lookupEntity, model.persons, _p5, _user$project$PersonEntity$entirePersonShell),
+						_p9,
+						A3(_user$project$Slate_Reference$lookupEntity, model.persons, _p9, _user$project$PersonEntity$entirePersonShell),
 						model.addresses);
-					if (_p3.ctor === 'Ok') {
-						var _p4 = _p3._0;
-						if (_p4.ctor === 'Just') {
+					if (_p7.ctor === 'Ok') {
+						var _p8 = _p7._0;
+						if (_p8.ctor === 'Just') {
 							return A2(
 								_elm_lang$core$Platform_Cmd_ops['!'],
 								_elm_lang$core$Native_Utils.update(
 									model,
 									{
-										persons: A3(_elm_lang$core$Dict$insert, _p5.data.id, _p4._0, model.persons)
+										persons: A3(_elm_lang$core$Dict$insert, _p9.data.id, _p8._0, model.persons)
 									}),
 								_elm_lang$core$Native_List.fromArray(
 									[]));
@@ -11162,33 +11601,33 @@ var _user$project$Test_App$update = F2(
 								_elm_lang$core$Native_Utils.update(
 									model,
 									{
-										persons: A2(_elm_lang$core$Dict$remove, _p5.data.id, model.persons)
+										persons: A2(_elm_lang$core$Dict$remove, _p9.data.id, model.persons)
 									}),
 								_elm_lang$core$Native_List.fromArray(
 									[]));
 						}
 					} else {
-						var _v3 = A2(_user$project$Test_App$MutationError, 'Person', _p3._0),
-							_v4 = model;
-						msg = _v3;
-						model = _v4;
+						var _v5 = A2(_user$project$Test_App$MutationError, 'Person', _p7._0),
+							_v6 = model;
+						msg = _v5;
+						model = _v6;
 						continue update;
 					}
 				case 'MutateAddress':
-					var _p8 = _p0._0;
-					var _p6 = A2(
+					var _p12 = _p1._0;
+					var _p10 = A2(
 						_user$project$AddressEntity$mutate,
-						_p8,
-						A3(_user$project$Slate_Reference$lookupEntity, model.addresses, _p8, _user$project$AddressEntity$entireAddressShell));
-					if (_p6.ctor === 'Ok') {
-						var _p7 = _p6._0;
-						if (_p7.ctor === 'Just') {
+						_p12,
+						A3(_user$project$Slate_Reference$lookupEntity, model.addresses, _p12, _user$project$AddressEntity$entireAddressShell));
+					if (_p10.ctor === 'Ok') {
+						var _p11 = _p10._0;
+						if (_p11.ctor === 'Just') {
 							return A2(
 								_elm_lang$core$Platform_Cmd_ops['!'],
 								_elm_lang$core$Native_Utils.update(
 									model,
 									{
-										addresses: A3(_elm_lang$core$Dict$insert, _p8.data.id, _p7._0, model.addresses)
+										addresses: A3(_elm_lang$core$Dict$insert, _p12.data.id, _p11._0, model.addresses)
 									}),
 								_elm_lang$core$Native_List.fromArray(
 									[]));
@@ -11198,92 +11637,30 @@ var _user$project$Test_App$update = F2(
 								_elm_lang$core$Native_Utils.update(
 									model,
 									{
-										addresses: A2(_elm_lang$core$Dict$remove, _p8.data.id, model.addresses)
+										addresses: A2(_elm_lang$core$Dict$remove, _p12.data.id, model.addresses)
 									}),
 								_elm_lang$core$Native_List.fromArray(
 									[]));
 						}
 					} else {
-						var _v7 = A2(_user$project$Test_App$MutationError, 'Address', _p6._0),
-							_v8 = model;
-						msg = _v7;
-						model = _v8;
+						var _v9 = A2(_user$project$Test_App$MutationError, 'Address', _p10._0),
+							_v10 = model;
+						msg = _v9;
+						model = _v10;
 						continue update;
 					}
-				case 'ConnectionComplete':
-					var _p10 = _p0._0;
-					var l = A2(_elm_lang$core$Debug$log, 'ConnectionComplete', _p10);
-					var _p9 = _p10;
-					if (_p9.ctor === 'Ok') {
-						return A2(
-							_elm_lang$core$Platform_Cmd_ops['!'],
-							_elm_lang$core$Native_Utils.update(
-								model,
-								{
-									connectionId: _elm_lang$core$Maybe$Just(_p9._0)
-								}),
-							_elm_lang$core$Native_List.fromArray(
-								[]));
-					} else {
-						var l = _elm_lang$core$Native_Utils.crash(
-							'Test.App',
-							{
-								start: {line: 157, column: 33},
-								end: {line: 157, column: 44}
-							})(
-							A2(
-								_elm_lang$core$Basics_ops['++'],
-								'Connection error: ',
-								A2(
-									_elm_lang$core$Basics_ops['++'],
-									_p9._0._1,
-									A2(
-										_elm_lang$core$Basics_ops['++'],
-										' on query: ',
-										_elm_lang$core$Basics$toString(_p9._0._0)))));
-						return A2(
-							_elm_lang$core$Platform_Cmd_ops['!'],
-							model,
-							_elm_lang$core$Native_List.fromArray(
-								[]));
-					}
-				case 'DisconnectionComplete':
-					var _p12 = _p0._0;
-					var l = A2(_elm_lang$core$Debug$log, 'DisconnectionComplete', _p12);
-					var _p11 = _p12;
-					if (_p11.ctor === 'Ok') {
-						return A2(
-							_elm_lang$core$Platform_Cmd_ops['!'],
-							_elm_lang$core$Native_Utils.update(
-								model,
-								{connectionId: _elm_lang$core$Maybe$Nothing}),
-							_elm_lang$core$Native_List.fromArray(
-								[]));
-					} else {
-						var l = _elm_lang$core$Native_Utils.crash(
-							'Test.App',
-							{
-								start: {line: 173, column: 33},
-								end: {line: 173, column: 44}
-							})(
-							A2(
-								_elm_lang$core$Basics_ops['++'],
-								'Disconnection error: ',
-								A2(
-									_elm_lang$core$Basics_ops['++'],
-									_p11._0._1,
-									A2(
-										_elm_lang$core$Basics_ops['++'],
-										' on query: ',
-										_elm_lang$core$Basics$toString(_p11._0._0)))));
-						return A2(
-							_elm_lang$core$Platform_Cmd_ops['!'],
-							model,
-							_elm_lang$core$Native_List.fromArray(
-								[]));
-					}
+				case 'EngineError':
+					var l = A2(
+						_elm_lang$core$Debug$log,
+						'EngineError',
+						{ctor: '_Tuple2', _0: _p1._0._0, _1: _p1._0._1});
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[]));
 				case 'EventProcessingComplete':
-					var l = A2(_elm_lang$core$Debug$log, 'EventProcessingComplete', _p0._0);
+					var l = A2(_elm_lang$core$Debug$log, 'EventProcessingComplete', _p1._0);
 					return A2(
 						_elm_lang$core$Platform_Cmd_ops['!'],
 						model,
@@ -11293,25 +11670,47 @@ var _user$project$Test_App$update = F2(
 					var l = _elm_lang$core$Native_Utils.crash(
 						'Test.App',
 						{
-							start: {line: 187, column: 21},
-							end: {line: 187, column: 32}
+							start: {line: 172, column: 21},
+							end: {line: 172, column: 32}
 						})(
 						A2(
 							_elm_lang$core$Basics_ops['++'],
 							'Event Processing error: ',
 							A2(
 								_elm_lang$core$Basics_ops['++'],
-								_p0._1._1,
+								_p1._1._1,
 								A2(
 									_elm_lang$core$Basics_ops['++'],
 									' for event:',
 									A2(
 										_elm_lang$core$Basics_ops['++'],
-										_elm_lang$core$Basics$toString(_p0._0),
+										_elm_lang$core$Basics$toString(_p1._0),
 										A2(
 											_elm_lang$core$Basics_ops['++'],
 											' on query: ',
-											_elm_lang$core$Basics$toString(_p0._1._0)))))));
+											_elm_lang$core$Basics$toString(_p1._1._0)))))));
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						model,
+						_elm_lang$core$Native_List.fromArray(
+							[]));
+				case 'MutationError':
+					var l = _elm_lang$core$Native_Utils.crash(
+						'Test.App',
+						{
+							start: {line: 180, column: 21},
+							end: {line: 180, column: 32}
+						})(
+						A2(
+							_elm_lang$core$Basics_ops['++'],
+							'Cannot mutate model for entity: ',
+							A2(
+								_elm_lang$core$Basics_ops['++'],
+								_p1._0,
+								A2(
+									_elm_lang$core$Basics_ops['++'],
+									'(',
+									A2(_elm_lang$core$Basics_ops['++'], _p1._1, ')')))));
 					return A2(
 						_elm_lang$core$Platform_Cmd_ops['!'],
 						model,
@@ -11321,19 +11720,13 @@ var _user$project$Test_App$update = F2(
 					var l = _elm_lang$core$Native_Utils.crash(
 						'Test.App',
 						{
-							start: {line: 195, column: 21},
-							end: {line: 195, column: 32}
+							start: {line: 188, column: 21},
+							end: {line: 188, column: 32}
 						})(
 						A2(
 							_elm_lang$core$Basics_ops['++'],
-							'Cannot mutate model for entity: ',
-							A2(
-								_elm_lang$core$Basics_ops['++'],
-								_p0._0,
-								A2(
-									_elm_lang$core$Basics_ops['++'],
-									'(',
-									A2(_elm_lang$core$Basics_ops['++'], _p0._1, ')')))));
+							'Bad query, missing mutation message for:  ',
+							_elm_lang$core$Basics$toString(_p1._0)));
 					return A2(
 						_elm_lang$core$Platform_Cmd_ops['!'],
 						model,
@@ -11342,6 +11735,17 @@ var _user$project$Test_App$update = F2(
 			}
 		}
 	});
+var _user$project$Test_App$main = {
+	main: _elm_lang$html$Html_App$program(
+		{
+			init: _user$project$Test_App$init,
+			view: function (_p13) {
+				return _elm_lang$html$Html$text('');
+			},
+			update: _user$project$Test_App$update,
+			subscriptions: _user$project$Test_App$subscriptions
+		})
+};
 var _user$project$Test_App$testUpdate = function () {
 	var sendEvent = F2(
 		function (event, model) {
@@ -11382,62 +11786,7 @@ var _user$project$Test_App$testUpdate = function () {
 		_elm_lang$core$Native_List.fromArray(
 			[event, event2, event3]));
 }();
-var _user$project$Test_App$query = _user$project$Slate_Query$query(_user$project$Test_App$Nop);
-var _user$project$Test_App$personQuery = A2(
-	_user$project$Slate_Query$Node,
-	_elm_lang$core$Native_Utils.update(
-		_user$project$Test_App$query,
-		{
-			schema: _user$project$PersonSchema$personSchema,
-			properties: _elm_lang$core$Maybe$Just(
-				_elm_lang$core$Native_List.fromArray(
-					['name'])),
-			msg: _user$project$Test_App$MutatePerson
-		}),
-	_elm_lang$core$Native_List.fromArray(
-		[
-			_user$project$Slate_Query$Leaf(
-			_elm_lang$core$Native_Utils.update(
-				_user$project$Test_App$query,
-				{
-					schema: _user$project$AddressSchema$addressSchema,
-					properties: _elm_lang$core$Maybe$Just(
-						_elm_lang$core$Native_List.fromArray(
-							['street'])),
-					msg: _user$project$Test_App$MutateAddress
-				}))
-		]));
-var _user$project$Test_App$init = function () {
-	var result = A6(_user$project$Slate_Engine$executeQuery, _user$project$Test_App$personQuery, _user$project$Test_App$ConnectionComplete, _user$project$Test_App$DisconnectionComplete, _user$project$Test_App$EventProcessingComplete, _user$project$Test_App$initModel.engineModel, _user$project$Test_App$SlateEngine);
-	var _p13 = result;
-	if (_p13.ctor === 'Ok') {
-		return A2(
-			_elm_lang$core$Platform_Cmd_ops['!'],
-			_elm_lang$core$Native_Utils.update(
-				_user$project$Test_App$initModel,
-				{engineModel: _p13._0._0}),
-			_elm_lang$core$Native_List.fromArray(
-				[_p13._0._1]));
-	} else {
-		var l = A2(_elm_lang$core$Debug$log, 'Init error', _p13._0);
-		return A2(
-			_elm_lang$core$Platform_Cmd_ops['!'],
-			_user$project$Test_App$initModel,
-			_elm_lang$core$Native_List.fromArray(
-				[]));
-	}
-}();
-var _user$project$Test_App$main = {
-	main: _elm_lang$html$Html_App$program(
-		{
-			init: _user$project$Test_App$init,
-			view: function (_p14) {
-				return _elm_lang$html$Html$text('');
-			},
-			update: _user$project$Test_App$update,
-			subscriptions: _user$project$Test_App$subscriptions
-		})
-};
+var _user$project$Test_App$Nop = {ctor: 'Nop'};
 
 var Elm = {};
 Elm['Test'] = Elm['Test'] || {};

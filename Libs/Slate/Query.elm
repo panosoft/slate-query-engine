@@ -1,20 +1,25 @@
-module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict)
+module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict, MessageDict, AppEventMsg)
 
 import String exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
 import List.Extra as LE exposing (..)
-import Slate.Schema exposing (..)
 import Regex exposing (HowMany(All, AtMost))
 import Regex.Extra as RE exposing (..)
 import Utils.Utils exposing (..)
+import Slate.Schema exposing (..)
+import Slate.Event exposing (..)
+
+
+type alias AppEventMsg msg =
+    Event -> msg
 
 
 type alias NodeQuery msg =
     { properties : Maybe (List String)
     , criteria : Maybe String
     , schema : EntitySchema
-    , msg : msg
+    , msg : AppEventMsg msg
     }
 
 
@@ -31,7 +36,7 @@ emptySchema =
     }
 
 
-query : msg -> NodeQuery msg
+query : AppEventMsg msg -> NodeQuery msg
 query msg =
     { properties = Nothing
     , criteria = Nothing
@@ -284,7 +289,11 @@ templateReplace =
     parametricReplace "{" "}"
 
 
-buildMessageDict : Query msg -> Dict String ( msg, String )
+type alias MessageDict msg =
+    Dict String ( AppEventMsg msg, String )
+
+
+buildMessageDict : Query msg -> MessageDict msg
 buildMessageDict query =
     let
         eventNames schema =
