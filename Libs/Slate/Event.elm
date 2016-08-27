@@ -1,13 +1,24 @@
-module Slate.Event exposing (..)
+module Slate.Event exposing (EventRecord, Event, EventData, eventRecordDecoder)
 
 import Json.Decode as Json exposing (..)
+import Json.Decode.Extra exposing (..)
 import Json.JsonHelper exposing ((///), (<||))
+import Date exposing (Date)
 
 
 {-| TODO Incomplete definition for Slate Events
 -}
+type alias EventRecord =
+    { id : String
+    , ts : Date
+    , event : Event
+    , max : Maybe String
+    }
+
+
 type alias Event =
     { name : String
+    , version : Maybe Int
     , data : EventData
     , metadata : Metadata
     }
@@ -16,9 +27,9 @@ type alias Event =
 {-| TODO Incomplete defition for Slate Data
 -}
 type alias EventData =
-    { id : String
+    { entityId : String
     , value : Maybe String
-    , version : Maybe Int
+    , referenceId : Maybe String
     , propertyId : Maybe String
     , oldPosition : Maybe Int
     , newPosition : Maybe Int
@@ -30,10 +41,20 @@ type alias Metadata =
     }
 
 
+eventRecordDecoder : Json.Decoder EventRecord
+eventRecordDecoder =
+    Json.succeed EventRecord
+        <|| ("id" := string)
+        <|| ("ts" := date)
+        <|| ("event" := eventDecoder)
+        <|| (maybe ("max" := string))
+
+
 eventDecoder : Json.Decoder Event
 eventDecoder =
     Json.succeed Event
         <|| ("name" := string)
+        <|| (maybe ("version" := int))
         <|| ("data" := eventDataDecoder)
         <|| ("metadata" := metadataDecoder)
 
@@ -41,9 +62,9 @@ eventDecoder =
 eventDataDecoder : Json.Decoder EventData
 eventDataDecoder =
     Json.succeed EventData
-        <|| ("id" := string)
+        <|| ("entityId" := string)
         <|| (maybe ("value" := string))
-        <|| (maybe ("version" := int))
+        <|| (maybe ("referenceId" := string))
         <|| (maybe ("propertyId" := string))
         <|| (maybe ("oldPosition" := int))
         <|| (maybe ("newPosition" := int))

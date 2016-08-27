@@ -3,7 +3,7 @@ module PersonEntity exposing (..)
 import Dict exposing (..)
 import Json.Decode as Json exposing ((:=), maybe, string, int, float)
 import Json.JsonHelper exposing ((///), (<||))
-import Slate.Event exposing (..)
+import Slate.Event exposing (Event)
 import Slate.Schema exposing (..)
 import Slate.Reference exposing (..)
 import Slate.EventProcessing exposing (..)
@@ -77,6 +77,9 @@ mutate event entity addresses =
 
         setAge value entity =
             { entity | age = value }
+
+        setAddress value entity =
+            { entity | address = value }
     in
         case event.name of
             "Person created" ->
@@ -97,5 +100,11 @@ mutate event entity addresses =
             "Person age removed" ->
                 Ok <| Just <| setAge Nothing entity
 
+            "Person address added" ->
+                Result.map Just <| updatePropertyReference setAddress event entity
+
+            "Person address removed" ->
+                Ok <| Just <| setAddress Nothing entity
+
             _ ->
-                Debug.crash <| "You forgot to implement event: " ++ event.name
+                Debug.crash <| "You forgot to implement a handler for event name: " ++ event.name

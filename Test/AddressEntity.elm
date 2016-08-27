@@ -2,7 +2,7 @@ module AddressEntity exposing (..)
 
 import Dict exposing (..)
 import Slate.Schema exposing (..)
-import Slate.Event exposing (..)
+import Slate.Event exposing (Event)
 import Slate.EventProcessing exposing (..)
 import AddressSchema exposing (..)
 
@@ -81,4 +81,4 @@ mutate event entity =
                 Ok <| Just <| setZip Nothing entity
 
             _ ->
-                Debug.crash <| "You forgot to implement event: " ++ event.name
+                Debug.crash <| "You forgot to implement a handler for event name: " ++ event.name

@@ -9,6 +9,9 @@ const E = {
 		fail: _elm_lang$core$Native_Scheduler.fail,
 		rawSpawn: _elm_lang$core$Native_Scheduler.rawSpawn
 	},
+	List: {
+		fromArray: _elm_lang$core$Native_List.fromArray
+	},
 	Maybe: {
 		Nothing: _elm_lang$core$Maybe$Nothing,
 		Just: _elm_lang$core$Maybe$Just
@@ -75,12 +78,12 @@ var _user$project$Native_Postgres = function() {
 		var count = 0;
 		const processData = (err, data) => {
 			if (err)
-				cb(err);
+				cb(err.message);
 			else {
 				if (data)
 					records[records.length] = JSON.stringify(data);
 				if (!data || ++count >= recordCount) {
-					cb(null, stream, records);
+					cb(null, stream, E.List.fromArray(records));
 					return;
 				}
 				read(stream, processData);

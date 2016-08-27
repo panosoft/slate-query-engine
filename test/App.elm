@@ -13,6 +13,7 @@ import Slate.Query exposing (..)
 import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
 import Slate.Engine as Engine exposing (..)
+import Date exposing (Date)
 
 
 -- import Postgres.Postgres exposing (..)
@@ -44,16 +45,17 @@ type alias Entities =
 type Msg
     = Nop
     | SlateEngine Engine.Msg
-    | EventError Event ( Int, String )
+    | EventError EventRecord ( Int, String )
     | EngineError ( Int, String )
-    | EventProcessingComplete (Result ( Int, String ) (List Event))
+    | EventProcessingComplete
     | MutationError String String
-    | MissingMutationMsg Event
-    | MutatePerson Event
-    | MutateAddress Event
+    | MissingMutationMsg EventRecord
+    | MutatePerson EventRecord
+    | MutateAddress EventRecord
+    | EventProcessingError ( String, String )
 
 
-eventMsgDispatch : List ( Event -> Msg, Dict String (Maybe Never) )
+eventMsgDispatch : List ( AppEventMsg Msg, Dict String (Maybe Never) )
 eventMsgDispatch =
     [ ( MutatePerson, PersonEntity.eventMap )
     , ( MutateAddress, AddressEntity.eventMap )
@@ -73,7 +75,7 @@ init : ( Model, Cmd Msg )
 init =
     let
         result =
-            Engine.executeQuery personQuery EngineError EventProcessingComplete initModel.engineModel SlateEngine
+            Engine.executeQuery personQuery [ "123", "456" ] Nothing EngineError EventProcessingError EventProcessingComplete initModel.engineModel SlateEngine
     in
         case result of
             Ok ( engineModel, cmd ) ->
@@ -126,31 +128,39 @@ update msg model =
             in
                 newModel ! [ Cmd.map SlateEngine engineCmd ]
 
-        MutatePerson event ->
-            case PersonEntity.mutate event (lookupEntity model.persons event PersonEntity.entirePersonShell) model.addresses of
-                Ok maybePerson ->
-                    case maybePerson of
-                        Just person ->
-                            { model | persons = Dict.insert event.data.id person model.persons } ! []
+        MutatePerson eventRecord ->
+            let
+                event =
+                    eventRecord.event
+            in
+                case PersonEntity.mutate event (lookupEntity model.persons event PersonEntity.entirePersonShell) model.addresses of
+                    Ok maybePerson ->
+                        case maybePerson of
+                            Just person ->
+                                { model | persons = Dict.insert event.data.entityId person model.persons } ! []
 
-                        Nothing ->
-                            { model | persons = Dict.remove event.data.id model.persons } ! []
+                            Nothing ->
+                                { model | persons = Dict.remove event.data.entityId model.persons } ! []
 
-                Err err ->
-                    update (MutationError "Person" err) model
+                    Err err ->
+                        update (MutationError "Person" err) model
 
-        MutateAddress event ->
-            case AddressEntity.mutate event (lookupEntity model.addresses event AddressEntity.entireAddressShell) of
-                Ok maybeAddress ->
-                    case maybeAddress of
-                        Just address ->
-                            { model | addresses = Dict.insert event.data.id address model.addresses } ! []
+        MutateAddress eventRecord ->
+            let
+                event =
+                    eventRecord.event
+            in
+                case AddressEntity.mutate event (lookupEntity model.addresses event AddressEntity.entireAddressShell) of
+                    Ok maybeAddress ->
+                        case maybeAddress of
+                            Just address ->
+                                { model | addresses = Dict.insert event.data.entityId address model.addresses } ! []
 
-                        Nothing ->
-                            { model | addresses = Dict.remove event.data.id model.addresses } ! []
+                            Nothing ->
+                                { model | addresses = Dict.remove event.data.entityId model.addresses } ! []
 
-                Err err ->
-                    update (MutationError "Address" err) model
+                    Err err ->
+                        update (MutationError "Address" err) model
 
         EngineError ( queryId, err ) ->
             let
@@ -159,36 +169,40 @@ update msg model =
             in
                 model ! []
 
-        EventProcessingComplete result ->
+        EventProcessingComplete ->
             let
                 l =
-                    Debug.log "EventProcessingComplete" result
+                    Debug.log "EventProcessingComplete" ""
             in
                 model ! []
 
-        EventError event ( queryId, err ) ->
+        EventError eventRecord ( queryId, err ) ->
             let
                 l =
-                    Debug.crash <| "Event Processing error: " ++ err ++ " for event:" ++ (toString event) ++ " on query: " ++ (toString queryId)
+                    Debug.crash <| "Event Processing error: " ++ err ++ " for: " ++ (toString eventRecord) ++ " on query: " ++ (toString queryId)
             in
-                model
-                    ! []
+                model ! []
 
         MutationError entityType err ->
             let
                 l =
-                    Debug.crash <| "Cannot mutate model for entity: " ++ entityType ++ "(" ++ err ++ ")"
+                    Debug.crash <| "Cannot mutate model for entity: " ++ entityType ++ " (" ++ err ++ ")"
             in
-                model
-                    ! []
+                model ! []
 
-        MissingMutationMsg event ->
+        MissingMutationMsg eventRecord ->
             let
                 l =
-                    Debug.crash <| "Bad query, missing mutation message for:  " ++ (toString event)
+                    Debug.crash <| "Bad query, missing mutation message for:  " ++ (toString eventRecord)
             in
-                model
-                    ! []
+                model ! []
+
+        EventProcessingError ( eventStr, error ) ->
+            let
+                l =
+                    Debug.crash <| "Event Processing Error: " ++ (toString eventStr) ++ " error: " ++ error
+            in
+                model ! []
 
 
 {-| convert entire person to person
@@ -231,9 +245,9 @@ personQuery =
 
 
 emptyEventData =
-    { id = ""
+    { entityId = ""
     , value = Nothing
-    , version = Nothing
+    , referenceId = Nothing
     , propertyId = Nothing
     , oldPosition = Nothing
     , newPosition = Nothing
@@ -242,28 +256,41 @@ emptyEventData =
 
 testUpdate =
     let
-        event =
-            { name = "Person created"
-            , data = { emptyEventData | id = "person-id" }
-            , metadata = { command = "Create person" }
+        eventRecord =
+            { id = "1"
+            , ts = Date.fromTime 0
+            , event = { name = "Person created", data = { emptyEventData | entityId = "person-id" }, metadata = { command = "Create person" }, version = Nothing }
+            , max = Just "3"
             }
 
-        event2 =
-            { name = "Person name added"
-            , data = { emptyEventData | id = "person-id", value = Just """{"first": "Joe", "middle": "", "last": "Mama"}""" }
-            , metadata = { command = "Add person name" }
+        eventRecord2 =
+            { id = "2"
+            , ts = Date.fromTime 0
+            , event =
+                { name = "Person name added"
+                , data = { emptyEventData | entityId = "person-id", value = Just """{"first": "Joe", "middle": "", "last": "Mama"}""" }
+                , metadata = { command = "Add person name" }
+                , version = Nothing
+                }
+            , max = Just "3"
             }
 
-        event3 =
-            { name = "Person destroyed"
-            , data = { emptyEventData | id = "person-id" }
-            , metadata = { command = "Destroy person" }
+        eventRecord3 =
+            { id = "3"
+            , ts = Date.fromTime 0
+            , event =
+                { name = "Person destroyed"
+                , data = { emptyEventData | entityId = "person-id" }
+                , metadata = { command = "Destroy person" }
+                , version = Nothing
+                }
+            , max = Just "3"
             }
 
-        sendEvent event model =
-            fst <| update (MutatePerson event) model
+        sendEvent eventRecord model =
+            fst <| update (MutatePerson eventRecord) model
     in
-        List.foldl sendEvent initModel [ event, event2, event3 ]
+        List.foldl sendEvent initModel [ eventRecord, eventRecord2, eventRecord3 ]
 
 
 

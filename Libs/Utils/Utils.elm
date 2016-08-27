@@ -11,6 +11,16 @@ isNothing maybe =
             True
 
 
+fstMap : (a -> b) -> List ( a, c ) -> List ( b, c )
+fstMap f =
+    List.map (\( x, y ) -> ( f x, y ))
+
+
+sndMap : (b -> c) -> List ( a, b ) -> List ( a, c )
+sndMap f =
+    List.map (\( x, y ) -> ( x, f y ))
+
+
 simpleFilterJust : List (Maybe a) -> List a
 simpleFilterJust =
     filterJust identity (\old new -> new)

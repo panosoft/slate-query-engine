@@ -45,14 +45,24 @@ getDateValue event =
     getConvertedValue Date.fromString event
 
 
-checkValueExists : Event -> Maybe value -> Result String value
-checkValueExists event value =
+checkExists : String -> Event -> Maybe value -> Result String value
+checkExists type' event value =
     case value of
         Just v ->
             Ok v
 
         Nothing ->
-            Err <| "Event data value is missing" ++ (toString event)
+            Err <| "Event data " ++ type' ++ " is missing " ++ (toString event)
+
+
+checkValueExists : Event -> Maybe value -> Result String value
+checkValueExists =
+    checkExists "value"
+
+
+checkReferenceExists : Event -> Maybe value -> Result String value
+checkReferenceExists =
+    checkExists "reference"
 
 
 getStringValue : Event -> Result String String
@@ -62,7 +72,7 @@ getStringValue event =
 
 getReference : Event -> Result String EntityReference
 getReference event =
-    checkValueExists event <| event.data.propertyId
+    checkReferenceExists event <| event.data.referenceId
 
 
 {-| Update entity property value

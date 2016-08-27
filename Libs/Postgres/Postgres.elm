@@ -6,6 +6,9 @@ import List.Extra as LE exposing (..)
 import Native.Postgres
 
 
+-- TODO handle highwatermark and batchsize
+
+
 {-| Native client structure
 -}
 type Client

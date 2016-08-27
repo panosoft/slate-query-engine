@@ -1,4 +1,4 @@
-module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict, MessageDict, AppEventMsg)
+module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict, MessageDict, MessageDictEntry, AppEventMsg)
 
 import String exposing (..)
 import Dict exposing (..)
@@ -8,11 +8,11 @@ import Regex exposing (HowMany(All, AtMost))
 import Regex.Extra as RE exposing (..)
 import Utils.Utils exposing (..)
 import Slate.Schema exposing (..)
-import Slate.Event exposing (..)
+import Slate.Event exposing (EventRecord)
 
 
 type alias AppEventMsg msg =
-    Event -> msg
+    EventRecord -> msg
 
 
 type alias NodeQuery msg =
@@ -237,15 +237,15 @@ ORDER BY id
 entityTemplate : String
 entityTemplate =
     """
-    (entity_id IN ({{entityIds}})
+    ({entityIds}
         AND event->>'name' IN ({eventNames})
         AND {entityCriteria}
         AND id > {{lastMaxId}})
 """
 
 
-parametricReplace : String -> String -> String -> List ( String, String ) -> String
-parametricReplace prefix suffix template replacements =
+parametricReplace : String -> String -> List ( String, String ) -> String -> String
+parametricReplace prefix suffix replacements template =
     let
         buildRegex param =
             Regex.escape <| prefix ++ param ++ suffix
@@ -284,23 +284,40 @@ getEventNames parent children =
         List.concat [ parent.schema.eventNames, propertyEventNames, childrenEventNames ]
 
 
-templateReplace : String -> List ( String, String ) -> String
+templateReplace : List ( String, String ) -> String -> String
 templateReplace =
     parametricReplace "{" "}"
 
 
+type alias MessageDictEntry msg =
+    { msg : AppEventMsg msg
+    , maybeEntityType : Maybe String
+    }
+
+
 type alias MessageDict msg =
-    Dict String ( AppEventMsg msg, String )
+    Dict String (MessageDictEntry msg)
 
 
 buildMessageDict : Query msg -> MessageDict msg
 buildMessageDict query =
     let
+        propertyEntityType : EntitySchemaReference -> String
+        propertyEntityType schemaRef =
+            case schemaRef of
+                SchemaReference schema ->
+                    schema.type'
+
+        eventNames : EntitySchema -> List ( Maybe String, String )
         eventNames schema =
-            List.concat [ schema.eventNames, List.concat <| List.map .eventNames schema.properties ]
+            schema.properties
+                |> List.map
+                    (\property -> List.map ((,) <| Maybe.map propertyEntityType property.entitySchema) property.eventNames)
+                |> List.concat
+                |> List.append (List.map ((,) Nothing) schema.eventNames)
 
         addToDict nodeQuery dict =
-            List.foldl (\name dict -> Dict.insert name ( nodeQuery.msg, nodeQuery.schema.type' ) dict) dict <| eventNames nodeQuery.schema
+            List.foldl (\( entityType, name ) dict -> Dict.insert name (MessageDictEntry nodeQuery.msg entityType) dict) dict <| eventNames nodeQuery.schema
 
         build query dict =
             case query of
@@ -328,10 +345,12 @@ buildEntityTemplate parentChild parent =
         entityCriteria =
             parent.criteria // "1=1"
     in
-        templateReplace entityTemplate
+        templateReplace
             [ ( "eventNames", eventNames )
             , ( "entityCriteria", entityCriteria )
+            , ( "entityIds", "{{" ++ parent.schema.type' ++ "-entityIds}}" )
             ]
+            entityTemplate
 
 
 buildSqlTemplate : Dict Int (List (NodeQuery msg)) -> Dict String (List (NodeQuery msg)) -> List String
@@ -362,11 +381,12 @@ buildSqlTemplate depthDict parentChild =
                     String.join "\n\tOR " <| List.map (buildEntityTemplate parentChild) queriesAtDepth
 
                 template =
-                    templateReplace sqlTemplate
+                    templateReplace
                         [ ( "maxIdColumn", maxIdColumn )
                         , ( "maxIdSQLClause", maxIdSQLClause )
                         , ( "entityTemplates", entityTemplates )
                         ]
+                        sqlTemplate
 
                 newTemplates =
                     template :: templates

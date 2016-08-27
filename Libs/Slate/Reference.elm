@@ -1,7 +1,7 @@
 module Slate.Reference exposing (..)
 
 import Dict exposing (Dict)
-import Slate.Event exposing (..)
+import Slate.Event exposing (Event)
 
 
 type alias EntityReference =
@@ -15,7 +15,7 @@ type alias EntityReference =
 
 lookupEntity : Dict String entity -> Event -> entity -> entity
 lookupEntity entities event default =
-    dereferenceEntity entities (Just event.data.id) default
+    dereferenceEntity entities (Just event.data.entityId) default
 
 
 dereferenceEntity : Dict String entity -> Maybe EntityReference -> entity -> entity
