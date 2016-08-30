@@ -3,9 +3,9 @@ module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, pa
 import String exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
-import List.Extra as LE exposing (..)
+import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
-import Regex.Extra as RE exposing (..)
+import Regex.Extra as RegexE exposing (..)
 import Utils.Utils exposing (..)
 import Slate.Schema exposing (..)
 import Slate.Event exposing (EventRecord)
@@ -250,7 +250,7 @@ parametricReplace prefix suffix replacements template =
         buildRegex param =
             Regex.escape <| prefix ++ param ++ suffix
     in
-        List.foldl (\( param, value ) template -> RE.replace All (buildRegex param) (RE.simpleReplacer value) template) template replacements
+        List.foldl (\( param, value ) template -> RegexE.replace All (buildRegex param) (RegexE.simpleReplacer value) template) template replacements
 
 
 propertySchemaEventNames : NodeQuery msg -> List ( EntitySchema, List String )
@@ -275,7 +275,7 @@ getEventNames parent children =
             propertySchemaEventNames parent
 
         findEventNames schema =
-            snd <| (LE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) // ( schema, [] )
+            snd <| (ListE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) // ( schema, [] )
 
         childrenEventNames : List String
         childrenEventNames =

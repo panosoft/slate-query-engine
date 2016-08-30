@@ -1,14 +1,14 @@
 module Utils.Utils exposing (..)
 
 
-isNothing : Maybe a -> Bool
-isNothing maybe =
-    case maybe of
-        Just value ->
-            False
+(///) : Result err value -> (err -> value) -> value
+(///) result f =
+    case result of
+        Ok value ->
+            value
 
-        Nothing ->
-            True
+        Err err ->
+            f err
 
 
 fstMap : (a -> b) -> List ( a, c ) -> List ( b, c )
@@ -39,6 +39,31 @@ filterJust accessor replacer list =
 
         [] ->
             []
+
+
+isOk : Result error x -> Bool
+isOk result =
+    case result of
+        Ok _ ->
+            True
+
+        Err _ ->
+            False
+
+
+isErr : Result error x -> Bool
+isErr =
+    not << isOk
+
+
+getErr : Result a x -> a -> a
+getErr result default =
+    case result of
+        Ok _ ->
+            default
+
+        Err err ->
+            err
 
 
 filterErr : List (Result error x) -> List error

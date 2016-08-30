@@ -2,7 +2,7 @@ module Slate.EventProcessing exposing (..)
 
 import String exposing (..)
 import Date exposing (..)
-import Utils.Utils exposing (..)
+import Maybe.Extra as MaybeE exposing (isNothing)
 import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
 

@@ -4,15 +4,18 @@ import String exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
 import Json.Decode exposing (decodeString)
-import List.Extra as LE exposing (..)
+import List.Extra as ListE exposing (..)
+import Maybe.Extra as MaybeE exposing (isNothing)
 import Regex exposing (HowMany(All, AtMost))
-import Regex.Extra as RE exposing (..)
+import Regex.Extra as RegexE exposing (..)
 import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, parametricReplace)
 import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
 import Utils.Utils exposing (..)
 import Postgres.Postgres as Postgres exposing (..)
 
 
+{-| - TODO change this !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-}
 queryBatchSize : Int
 queryBatchSize =
     10
@@ -38,7 +41,7 @@ type alias QueryState msg =
     , firstQueryMaxId : Int
     , errorMsg : ErrorMsg msg
     , eventProcessingErrorMsg : EventProcessingErrorMsg msg
-    , completionMsg : msg
+    , completionMsg : Int -> msg
     , tagger : Msg -> msg
     , messageDict : MessageDict msg
     }
@@ -116,8 +119,6 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
 
-                -- cmd =
-                --     Postgres.disconnect connectionId False (DisconnectError queryStateId) (Disconnect queryStateId)
                 ( newModel, cmd ) =
                     startQuery model queryStateId connectionId
             in
@@ -137,9 +138,6 @@ update msg model =
             let
                 l =
                     Debug.log "Disconnect" ( queryStateId, connectionId )
-
-                queryState =
-                    getQueryState queryStateId model
             in
                 ( model ! [], [] )
 
@@ -151,20 +149,29 @@ update msg model =
                 ( updatedModel, msgs ) =
                     processEvents model queryStateId eventStrs
 
-                ( newModel, cmd ) =
-                    let
-                        queryState =
-                            getQueryState queryStateId model
-                    in
-                        if queryState.badQueryState == False then
-                            if eventStrs == [] then
-                                startQuery updatedModel queryStateId connectionId
-                            else
-                                ( updatedModel, nextQuery queryStateId connectionId )
+                queryState =
+                    getQueryState queryStateId model
+
+                ( finalModel, cmd ) =
+                    if queryState.badQueryState == False then
+                        if eventStrs == [] then
+                            startQuery updatedModel queryStateId connectionId
                         else
-                            model ! []
+                            ( updatedModel, nextQuery queryStateId connectionId )
+                    else
+                        model ! []
+
+                {- handle end of query -}
+                endOfQuery =
+                    cmd == Cmd.none
+
+                ( finalMsgs, finalCmd ) =
+                    if endOfQuery then
+                        ( List.append msgs [ queryState.completionMsg queryStateId ], Postgres.disconnect connectionId False (DisconnectError queryStateId) (Disconnect queryStateId) )
+                    else
+                        ( msgs, cmd )
             in
-                ( newModel ! [ cmd ], msgs )
+                ( finalModel ! [ finalCmd ], finalMsgs )
 
         QueryError queryStateId ( connectionId, error ) ->
             let
@@ -226,7 +233,7 @@ startQuery model queryStateId connectionId =
                     queryState.ids
 
         lastMaxId =
-            toString <| (LE.foldl1 max <| Dict.values queryState.maxIds) // -1
+            toString <| (ListE.foldl1 max <| Dict.values queryState.maxIds) // -1
     in
         (Maybe.map
             (\template ->
@@ -253,7 +260,7 @@ startQuery model queryStateId connectionId =
                         List.foldl (\( type', ids ) template -> replace type' ids template) sqlTemplate (sndMap Set.toList <| Dict.toList entityIds)
 
                     sql =
-                        RE.replace All "\\{\\{.+?\\-entityIds\\}\\}" (RE.simpleReplacer "1!=1") sqlWithEntityIds
+                        RegexE.replace All "\\{\\{.+?\\-entityIds\\}\\}" (RegexE.simpleReplacer "1!=1") sqlWithEntityIds
 
                     ll =
                         Debug.log sql "sql"
@@ -265,16 +272,6 @@ startQuery model queryStateId connectionId =
             maybeTemplate
         )
             // ( model, Cmd.none )
-
-
-(///) : Result err value -> (err -> value) -> value
-(///) result f =
-    case result of
-        Ok value ->
-            value
-
-        Err err ->
-            f err
 
 
 processEvents : Model msg -> Int -> List String -> ( Model msg, List msg )
@@ -324,21 +321,19 @@ processEvents model queryStateId eventStrs =
                                                     (Result.toMaybe <| toInt <| eventRecord.max // "-1") // -1
 
                                                 firstQueryMaxId =
-                                                    max queryState.firstQueryMaxId <| maxId
+                                                    max queryState.firstQueryMaxId maxId
+
+                                                updateQueryState maybeIds =
+                                                    ( { queryState | firstQueryMaxId = firstQueryMaxId, ids = maybeIds // queryState.ids }, (msg eventRecord) :: msgs )
                                             in
                                                 {- add referenced entities to ids dictionary for next SQL query -}
                                                 if not <| isNothing maybeEntityType then
                                                     if isNothing event.data.referenceId then
                                                         eventError eventStr msgs <| missingReferenceValue eventRecord
                                                     else
-                                                        ( { queryState
-                                                            | ids = Dict.insert entityType (Set.insert (event.data.referenceId // "") ids) queryState.ids
-                                                            , firstQueryMaxId = firstQueryMaxId
-                                                          }
-                                                        , (msg eventRecord) :: msgs
-                                                        )
+                                                        updateQueryState <| Just <| Dict.insert entityType (Set.insert (event.data.referenceId // "") ids) queryState.ids
                                                 else
-                                                    ( { queryState | firstQueryMaxId = firstQueryMaxId }, (msg eventRecord) :: msgs )
+                                                    updateQueryState Nothing
                                         )
                                         maybeMsg
                                         // eventError eventStr msgs eventNotInDict
@@ -357,13 +352,17 @@ nextQuery queryStateId connectionId =
     Postgres.nextQuery connectionId (QueryError queryStateId) (Events queryStateId)
 
 
+connectToDb : Model msg -> Int -> (Msg -> msg) -> Cmd msg
+connectToDb model queryStateId tagger =
+    Postgres.connect model.host model.port' model.database model.user model.password (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId))
 
--- TODO
--- closeQUery : Int -> Result String ()
 
 
-executeQuery : Query msg -> List String -> Maybe String -> ErrorMsg msg -> EventProcessingErrorMsg msg -> msg -> Model msg -> (Msg -> msg) -> Result (List String) ( Model msg, Cmd msg )
-executeQuery query rootIds additionalCriteria errorMsg eventProcessingErrorMsg completionMsg model tagger =
+-- Public API
+
+
+executeQuery : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> Model msg -> Maybe String -> Query msg -> List String -> Result (List String) ( Model msg, Cmd msg, Int )
+executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additionalCriteria query rootIds =
     let
         result =
             buildQueryTemplate query
@@ -392,9 +391,19 @@ executeQuery query rootIds additionalCriteria errorMsg eventProcessingErrorMsg c
                         }
 
                     cmd =
-                        Postgres.connect model.host model.port' model.database model.user model.password (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId))
+                        connectToDb model queryStateId tagger
                 in
-                    Ok ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd )
+                    Ok ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
 
             Err errs ->
                 Err errs
+
+
+refreshQuery : (Msg -> msg) -> Model msg -> Int -> Cmd msg
+refreshQuery tagger model queryStateId =
+    connectToDb model queryStateId tagger
+
+
+closeQuery : Model msg -> Int -> Model msg
+closeQuery model queryStateId =
+    { model | queryStates = Dict.remove queryStateId model.queryStates }

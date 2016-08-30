@@ -32,6 +32,21 @@ entirePersonShell =
     }
 
 
+type alias DefaultEntirePerson =
+    { name : Name
+    , age : Int
+    , address : EntityReference
+    }
+
+
+defaultEntirePerson : DefaultEntirePerson
+defaultEntirePerson =
+    { name = defaultName
+    , age = -1
+    , address = ""
+    }
+
+
 
 -- Value Objects
 

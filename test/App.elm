@@ -1,10 +1,12 @@
 module Test.App exposing (..)
 
+import String exposing (..)
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.App
-import PersonEntity exposing (..)
-import AddressEntity exposing (..)
+import Maybe.Extra as MaybeE exposing (isNothing)
+import PersonEntity exposing (EntirePerson, defaultEntirePerson)
+import AddressEntity exposing (EntireAddress, defaultEntireAddress)
 import PersonSchema exposing (..)
 import AddressSchema exposing (..)
 import Utils.Utils exposing (..)
@@ -13,22 +15,32 @@ import Slate.Query exposing (..)
 import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
 import Slate.Engine as Engine exposing (..)
+import Slate.Projection exposing (..)
 import Date exposing (Date)
 
 
--- import Postgres.Postgres exposing (..)
+type WrappedModel
+    = WrappedModel Model
 
 
 type alias Model =
-    { persons : Dict String EntirePerson
-    , addresses : Dict String EntireAddress
+    { entirePersons : Dict String EntirePerson
+    , entireAddresses : Dict String EntireAddress
+    , persons : Dict String Person
+    , addresses : Dict String Address
     , engineModel : Engine.Model Msg
-    , connectionId : Maybe Int
+    , queries : Dict Int (WrappedModel -> Result (List String) WrappedModel)
     }
 
 
 type alias Person =
-    { name : Name
+    { name : PersonEntity.Name
+    , address : Address
+    }
+
+
+type alias Address =
+    { street : String
     }
 
 
@@ -47,7 +59,7 @@ type Msg
     | SlateEngine Engine.Msg
     | EventError EventRecord ( Int, String )
     | EngineError ( Int, String )
-    | EventProcessingComplete
+    | EventProcessingComplete Int
     | MutationError String String
     | MissingMutationMsg EventRecord
     | MutatePerson EventRecord
@@ -64,22 +76,32 @@ eventMsgDispatch =
 
 initModel : Model
 initModel =
-    { persons = Dict.empty
+    { entirePersons = Dict.empty
+    , entireAddresses = Dict.empty
+    , persons = Dict.empty
     , addresses = Dict.empty
     , engineModel = Engine.initModel "postgresDBServer" 5432 "test" "charles" "testpassword"
-    , connectionId = Nothing
+    , queries = Dict.empty
     }
+
+
+executeQuery =
+    Engine.executeQuery EngineError EventProcessingError EventProcessingComplete SlateEngine initModel.engineModel
+
+
+refreshQuery =
+    Engine.refreshQuery SlateEngine
 
 
 init : ( Model, Cmd Msg )
 init =
     let
         result =
-            Engine.executeQuery personQuery [ "123", "456" ] Nothing EngineError EventProcessingError EventProcessingComplete initModel.engineModel SlateEngine
+            executeQuery Nothing personQuery [ "123", "456" ]
     in
         case result of
-            Ok ( engineModel, cmd ) ->
-                { initModel | engineModel = engineModel } ! [ cmd ]
+            Ok ( engineModel, cmd, queryId ) ->
+                { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries } ! [ cmd ]
 
             Err err ->
                 let
@@ -113,34 +135,37 @@ update msg model =
                 ( ( engineModel, engineCmd ), appMsgs ) =
                     Engine.update engineMsg model.engineModel
 
-                doUpdate msg ( model, cmd ) =
+                doUpdate msg ( model, cmds ) =
                     let
                         ( newModel, newCmd ) =
                             update msg model
-
-                        cmdBatch =
-                            Cmd.batch [ cmd, newCmd ]
                     in
-                        ( newModel, cmdBatch )
+                        ( newModel, newCmd :: cmds )
 
-                ( newModel, cmd ) =
-                    List.foldl doUpdate ( { model | engineModel = engineModel }, Cmd.none ) appMsgs
+                ( newModel, myCmds ) =
+                    List.foldl doUpdate ( { model | engineModel = engineModel }, [] ) appMsgs
+
+                myCmd =
+                    myCmds
+                        |> List.filter ((/=) Cmd.none)
+                        |> List.reverse
+                        |> Cmd.batch
             in
-                newModel ! [ Cmd.map SlateEngine engineCmd ]
+                newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
 
         MutatePerson eventRecord ->
             let
                 event =
                     eventRecord.event
             in
-                case PersonEntity.mutate event (lookupEntity model.persons event PersonEntity.entirePersonShell) model.addresses of
+                case PersonEntity.mutate event (lookupEntity model.entirePersons event PersonEntity.entirePersonShell) model.entireAddresses of
                     Ok maybePerson ->
                         case maybePerson of
                             Just person ->
-                                { model | persons = Dict.insert event.data.entityId person model.persons } ! []
+                                { model | entirePersons = Dict.insert event.data.entityId person model.entirePersons } ! []
 
                             Nothing ->
-                                { model | persons = Dict.remove event.data.entityId model.persons } ! []
+                                { model | entirePersons = Dict.remove event.data.entityId model.entirePersons } ! []
 
                     Err err ->
                         update (MutationError "Person" err) model
@@ -150,14 +175,14 @@ update msg model =
                 event =
                     eventRecord.event
             in
-                case AddressEntity.mutate event (lookupEntity model.addresses event AddressEntity.entireAddressShell) of
+                case AddressEntity.mutate event (lookupEntity model.entireAddresses event AddressEntity.entireAddressShell) of
                     Ok maybeAddress ->
                         case maybeAddress of
                             Just address ->
-                                { model | addresses = Dict.insert event.data.entityId address model.addresses } ! []
+                                { model | entireAddresses = Dict.insert event.data.entityId address model.entireAddresses } ! []
 
                             Nothing ->
-                                { model | addresses = Dict.remove event.data.entityId model.addresses } ! []
+                                { model | entireAddresses = Dict.remove event.data.entityId model.entireAddresses } ! []
 
                     Err err ->
                         update (MutationError "Address" err) model
@@ -169,12 +194,33 @@ update msg model =
             in
                 model ! []
 
-        EventProcessingComplete ->
+        EventProcessingComplete queryId ->
             let
                 l =
                     Debug.log "EventProcessingComplete" ""
+
+                unknownQueryId =
+                    "Unknown query id: " ++ (toString queryId)
+
+                projectionResult : Result (List String) WrappedModel
+                projectionResult =
+                    (Maybe.map (\projection -> projection <| WrappedModel model) <| Dict.get queryId model.queries) // (Err [ unknownQueryId ])
+
+                crash =
+                    if isErr projectionResult then
+                        getErr projectionResult [ unknownQueryId ]
+                            |> String.join "\n"
+                            |> Debug.crash
+                    else
+                        ""
+
+                newModel =
+                    ((Result.map (\wrappedModel -> unwrapModel wrappedModel) projectionResult) /// (\_ -> model))
+
+                cmd =
+                    refreshQuery newModel.engineModel queryId
             in
-                model ! []
+                newModel ! [ cmd ]
 
         EventError eventRecord ( queryId, err ) ->
             let
@@ -205,18 +251,93 @@ update msg model =
                 model ! []
 
 
+unwrapModel : WrappedModel -> Model
+unwrapModel wrappedModel =
+    case wrappedModel of
+        WrappedModel model ->
+            model
+
+
+projectPersonQuery : WrappedModel -> Result (List String) WrappedModel
+projectPersonQuery wrappedModel =
+    let
+        model =
+            unwrapModel wrappedModel
+
+        addresses =
+            projectMap toAddress model.entireAddresses
+
+        persons =
+            projectMap (toPerson <| okAddressesOnly addresses) model.entirePersons
+
+        newModel =
+            { model | persons = okPersonsOnly persons, addresses = okAddressesOnly addresses }
+
+        allErrors =
+            allProjectionErrors [ projectionErrors addresses, projectionErrors persons ]
+    in
+        if allErrors == [] then
+            Ok <| WrappedModel newModel
+        else
+            Err allErrors
+
+
+okAddressesOnly =
+    okOnly defaultAddress
+
+
+defaultAddress : Address
+defaultAddress =
+    { street = defaultEntireAddress.street
+    }
+
+
+{-| convert entire address to address
+-}
+toAddress : EntireAddress -> Result (List String) Address
+toAddress entireAddress =
+    getValidEntity
+        [ ( isNothing entireAddress.street, "street is missing" )
+        ]
+        { street = entireAddress.street // defaultAddress.street
+        }
+
+
+okPersonsOnly =
+    okOnly defaultPerson
+
+
+defaultPerson : Person
+defaultPerson =
+    { name = defaultEntirePerson.name
+    , address = defaultAddress
+    }
+
+
 {-| convert entire person to person
 -}
-toPerson : Entities -> EntirePerson -> Result (List String) Person
-toPerson entities entire =
-    getValidEntity
-        [ ( isNothing entire.name, "name is missing" )
-          -- , ( isNothing entire.age, "age is missing" )
-        ]
-        { name =
-            entire.name // defaultName
-            -- , age = entire.age // -1
-        }
+toPerson : Dict String Address -> EntirePerson -> Result (List String) Person
+toPerson addresses entirePerson =
+    let
+        addressRef =
+            entirePerson.address
+
+        address =
+            MaybeE.join <| Maybe.map (\ref -> Dict.get ref addresses) addressRef
+
+        getPerson : Address -> Result (List String) Person
+        getPerson address =
+            getValidEntity
+                [ ( isNothing entirePerson.name, "name is missing" )
+                ]
+                { name = entirePerson.name // defaultPerson.name
+                , address = address
+                }
+    in
+        if isNothing address && (not <| isNothing addressRef) then
+            Err [ "Cannot find address id: " ++ (addressRef // "BUG") ]
+        else
+            getPerson <| address // defaultAddress
 
 
 query : NodeQuery Msg
@@ -228,20 +349,6 @@ personQuery : Query Msg
 personQuery =
     Node { query | schema = personSchema, properties = Just [ "name" ], msg = MutatePerson }
         [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]
-
-
-
--- test =
---     let
---         sql =
---             case personQueryTemplate of
---                 Ok cmds ->
---                     String.join "\n" cmds
---
---                 Err err ->
---                     String.join "\n" err
---     in
---         Debug.log sql "personQueryTemplate"
 
 
 emptyEventData =

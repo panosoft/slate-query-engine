@@ -27,6 +27,23 @@ entireAddressShell =
     }
 
 
+type alias DefaultEntireAddress =
+    { street : String
+    , city : String
+    , state : String
+    , zip : String
+    }
+
+
+defaultEntireAddress : DefaultEntireAddress
+defaultEntireAddress =
+    { street = ""
+    , city = ""
+    , state = ""
+    , zip = ""
+    }
+
+
 eventMap : Dict String (Maybe Never)
 eventMap =
     Slate.Schema.eventMap addressSchema addressProperties
