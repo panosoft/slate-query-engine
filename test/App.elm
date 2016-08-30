@@ -30,6 +30,7 @@ type alias Model =
     , addresses : Dict String Address
     , engineModel : Engine.Model Msg
     , queries : Dict Int (WrappedModel -> Result (List String) WrappedModel)
+    , didRefresh : Bool
     }
 
 
@@ -82,6 +83,7 @@ initModel =
     , addresses = Dict.empty
     , engineModel = Engine.initModel "postgresDBServer" 5432 "test" "charles" "testpassword"
     , queries = Dict.empty
+    , didRefresh = False
     }
 
 
@@ -217,10 +219,13 @@ update msg model =
                 newModel =
                     ((Result.map (\wrappedModel -> unwrapModel wrappedModel) projectionResult) /// (\_ -> model))
 
-                cmd =
-                    refreshQuery newModel.engineModel queryId
+                ( newEngineModel, cmd ) =
+                    if newModel.didRefresh == False then
+                        refreshQuery newModel.engineModel queryId
+                    else
+                        ( newModel.engineModel, Cmd.none )
             in
-                newModel ! [ cmd ]
+                { newModel | didRefresh = True, engineModel = newEngineModel } ! [ cmd ]
 
         EventError eventRecord ( queryId, err ) ->
             let

@@ -212,12 +212,12 @@ maxIdSqlClause =
 sqlTemplate : String
 sqlTemplate =
     """
-SELECT id, ts, (extract(epoch from ts)*100000)::numeric AS trans_id, event{maxIdColumn}
+SELECT id, ts, (extract(epoch from ts)*100000)::numeric AS trans_id, event{{maxIdColumn}}
 FROM events
-{maxIdSQLClause}
+{{maxIdSQLClause}}
 WHERE ({entityTemplates})
     AND {{additionalCriteria}}
-    {{firstQueryMaxCriteria}}
+    {{firstTemplateWithDataMaxCriteria}}
 ORDER BY id
 """
 
@@ -365,26 +365,12 @@ buildSqlTemplate depthDict parentChild =
                 queriesAtDepth =
                     Dict.get depth depthDict // []
 
-                maxIdColumn =
-                    if depth == 0 then
-                        ", q.max"
-                    else
-                        ""
-
-                maxIdSQLClause =
-                    if depth == 0 then
-                        "CROSS JOIN (SELECT MAX(id) FROM events) AS q\n"
-                    else
-                        ""
-
                 entityTemplates =
                     String.join "\n\tOR " <| List.map (buildEntityTemplate parentChild) queriesAtDepth
 
                 template =
                     templateReplace
-                        [ ( "maxIdColumn", maxIdColumn )
-                        , ( "maxIdSQLClause", maxIdSQLClause )
-                        , ( "entityTemplates", entityTemplates )
+                        [ ( "entityTemplates", entityTemplates )
                         ]
                         sqlTemplate
 
