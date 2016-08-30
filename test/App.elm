@@ -100,6 +100,8 @@ init =
     let
         result =
             executeQuery Nothing personQuery [ "123", "456" ]
+
+        -- executeQuery (Just "id NOT IN (3, 7)") personQuery [ "123", "456" ]
     in
         case result of
             Ok ( engineModel, cmd, queryId ) ->

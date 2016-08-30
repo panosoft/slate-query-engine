@@ -1,9 +1,11 @@
-module Slate.Engine exposing (..)
+module Slate.Engine exposing (Model, Msg, update, initModel, executeQuery, refreshQuery, processEvents)
 
 import String exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
-import Json.Decode exposing (decodeString)
+import Json.Decode as JD exposing (..)
+import Json.Encode as JE exposing (..)
+import Json.Helper as Json exposing (..)
 import List.Extra as ListE exposing (..)
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Regex exposing (HowMany(All, AtMost))
@@ -30,7 +32,8 @@ type alias EventProcessingErrorMsg msg =
 
 
 type alias QueryState msg =
-    { query : Query msg
+    { first : Bool
+    , rootEntity : String
     , badQueryState : Bool
     , currentTemplate : Int
     , templates : List String
@@ -44,7 +47,6 @@ type alias QueryState msg =
     , completionMsg : Int -> msg
     , tagger : Msg -> msg
     , messageDict : MessageDict msg
-    , first : Bool
     }
 
 
@@ -234,19 +236,10 @@ startQuery model queryStateId connectionId =
 
         entityIds : Dict String (Set String)
         entityIds =
-            let
-                rootEntity =
-                    case queryState.query of
-                        Node nodeQuery _ ->
-                            nodeQuery.schema.type'
-
-                        Leaf nodeQuery ->
-                            nodeQuery.schema.type'
-            in
-                if firstTemplate then
-                    Dict.insert rootEntity (Set.fromList queryState.rootIds) Dict.empty
-                else
-                    queryState.ids
+            if firstTemplate then
+                Dict.insert queryState.rootEntity (Set.fromList queryState.rootIds) Dict.empty
+            else
+                queryState.ids
 
         lastMaxId =
             toString
@@ -314,9 +307,6 @@ processEvents model queryStateId eventStrs =
 
         eventError eventStr msgs error =
             ( { queryState | badQueryState = True }, queryState.eventProcessingErrorMsg ( eventStr, error ) :: msgs )
-
-        l =
-            Debug.log "ids:::::::::::" queryState.ids
 
         ( newQueryState, msgs ) =
             List.foldl
@@ -420,8 +410,16 @@ executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additio
                     queryStateId =
                         model.nextId
 
+                    rootEntity =
+                        case query of
+                            Node nodeQuery _ ->
+                                nodeQuery.schema.type'
+
+                            Leaf nodeQuery ->
+                                nodeQuery.schema.type'
+
                     queryState =
-                        { query = query
+                        { rootEntity = rootEntity
                         , badQueryState = False
                         , currentTemplate = 0
                         , templates = templates
@@ -465,3 +463,44 @@ refreshQuery tagger model queryStateId =
 closeQuery : Model msg -> Int -> Model msg
 closeQuery model queryStateId =
     { model | queryStates = Dict.remove queryStateId model.queryStates }
+
+
+encodeQueryState : QueryState msg -> String
+encodeQueryState queryState =
+    JE.encode 0 <|
+        JE.object
+            [ ( "first", JE.bool queryState.first )
+            , ( "rootEntity", JE.string queryState.rootEntity )
+            , ( "badQueryState", JE.bool queryState.badQueryState )
+            , ( "currentTemplate", JE.int queryState.currentTemplate )
+            , ( "templates", JE.list <| List.map JE.string queryState.templates )
+            , ( "rootIds", JE.list <| List.map JE.string queryState.rootIds )
+            , ( "ids", Json.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
+            , ( "additionalCriteria", Json.encMaybe JE.string queryState.additionalCriteria )
+            , ( "maxIds", Json.encDict JE.string JE.int queryState.maxIds )
+            , ( "firstTemplateWithDataMaxId", JE.int queryState.firstTemplateWithDataMaxId )
+            ]
+
+
+decodeQueryState : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
+decodeQueryState errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
+    JD.decodeString
+        (JD.succeed
+            QueryState
+            <|| ("first" := JD.bool)
+            <|| ("rootEntity" := JD.string)
+            <|| ("badQueryState" := JD.bool)
+            <|| ("currentTemplate" := JD.int)
+            <|| ("templates" := JD.list JD.string)
+            <|| ("rootIds" := JD.list JD.string)
+            <|| ("ids" := Json.decConvertDict Set.fromList JD.string (JD.list JD.string))
+            <|| ("additionalCriteria" := JD.maybe JD.string)
+            <|| ("maxIds" := Json.decDict JD.string JD.int)
+            <|| ("firstTemplateWithDataMaxId" := JD.int)
+            <|| JD.succeed errorMsg
+            <|| JD.succeed eventProcessingErrorMsg
+            <|| JD.succeed completionMsg
+            <|| JD.succeed tagger
+            <|| JD.succeed messageDict
+        )
+        json

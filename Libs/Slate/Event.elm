@@ -2,7 +2,7 @@ module Slate.Event exposing (EventRecord, Event, EventData, eventRecordDecoder)
 
 import Json.Decode as Json exposing (..)
 import Json.Decode.Extra exposing (..)
-import Json.JsonHelper exposing ((///), (<||))
+import Json.Helper exposing ((///), (<||))
 import Date exposing (Date)
 
 

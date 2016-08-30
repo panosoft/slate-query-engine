@@ -2,7 +2,7 @@ module PersonEntity exposing (..)
 
 import Dict exposing (..)
 import Json.Decode as Json exposing ((:=), maybe, string, int, float)
-import Json.JsonHelper exposing ((///), (<||))
+import Json.Helper exposing (..)
 import Slate.Event exposing (Event)
 import Slate.Schema exposing (..)
 import Slate.Reference exposing (..)

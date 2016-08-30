@@ -1,6 +1,9 @@
 module Slate.Schema exposing (..)
 
 import Dict exposing (..)
+import Json.Decode as JD
+import Json.Encode as JE
+import Json.Helper as Json
 
 
 type alias EntitySchema =

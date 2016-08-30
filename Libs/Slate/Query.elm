@@ -77,6 +77,16 @@ depthDict query =
         depthDict' query 0 Dict.empty
 
 
+toList : Query msg -> List (List (NodeQuery msg))
+toList query =
+    case query of
+        Node nodeQuery children ->
+            [ nodeQuery ] :: (List.map toFlatList children)
+
+        Leaf nodeQuery ->
+            [ [ nodeQuery ], [] ]
+
+
 toFlatList : Query msg -> List (NodeQuery msg)
 toFlatList query =
     case query of
