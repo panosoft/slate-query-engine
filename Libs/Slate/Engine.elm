@@ -285,7 +285,7 @@ startQuery model queryStateId connectionId =
                         Debug.log sql "sql"
                 in
                     ( updateQueryState model { queryState | currentTemplate = queryState.currentTemplate + 1 }
-                    , Postgres.startQuery connectionId sql queryBatchSize (QueryError queryStateId) (Events queryStateId)
+                    , Postgres.query connectionId sql queryBatchSize (QueryError queryStateId) (Events queryStateId)
                     )
             )
             maybeTemplate
@@ -386,7 +386,7 @@ processEvents model queryStateId eventStrs =
 
 nextQuery : Int -> Int -> Cmd Msg
 nextQuery queryStateId connectionId =
-    Postgres.nextQuery connectionId (QueryError queryStateId) (Events queryStateId)
+    Postgres.moreQueryResults connectionId (QueryError queryStateId) (Events queryStateId)
 
 
 connectToDb : Model msg -> Int -> (Msg -> msg) -> Cmd msg

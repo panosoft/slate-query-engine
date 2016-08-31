@@ -69,11 +69,11 @@ var _user$project$Native_Postgres = function() {
 			}
 		});
 	};
-	const _startQuery = (dbClient, sql, recordCount, cb) => {
+	const _query = (dbClient, sql, recordCount, cb) => {
 		const stream = dbClient.client.query(new QueryStream(sql));
-		return _nextQuery(dbClient, stream, recordCount, cb);
+		return _moreQueryResults(dbClient, stream, recordCount, cb);
 	};
-	const _nextQuery = (dbClient, stream, recordCount, cb) => {
+	const _moreQueryResults = (dbClient, stream, recordCount, cb) => {
 		var records = [];
 		var count = 0;
 		const processData = (err, data) => {
@@ -91,18 +91,30 @@ var _user$project$Native_Postgres = function() {
 		};
 		read(stream, processData);
 	};
+	const _executeSQL = (dbClient, sql, cb) => {
+		dbClient.client.query(sql, (err, result) => {
+			if (err)
+				cb(err.message);
+			else {
+				console.log(result);
+				cb(null, result.rowCount);
+			}
+		});
+	};
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Cmds
 	const connect = cmd.cmdCall6_1(_connect);
 	const disconnect = cmd.cmdCall2_0(_disconnect, cmd.unwrap({1:'_0'}));
-	const startQuery = cmd.cmdCall3_2(_startQuery, cmd.unwrap({1:'_0'}));
-	const nextQuery = cmd.cmdCall3_2(_nextQuery, cmd.unwrap({1:'_0'}));
+	const query = cmd.cmdCall3_2(_query, cmd.unwrap({1:'_0'}));
+	const moreQueryResults = cmd.cmdCall3_2(_moreQueryResults, cmd.unwrap({1:'_0'}));
+	const executeSQL = cmd.cmdCall2_1(_executeSQL, cmd.unwrap({1:'_0'}));
 
 	return {
 		connect: F7(connect),
 		disconnect: F3(disconnect),
-		startQuery: F4(startQuery),
-		nextQuery: F4(nextQuery)
+		query: F4(query),
+		moreQueryResults: F4(moreQueryResults),
+		executeSQL: F3(executeSQL)
 	};
 
 }();

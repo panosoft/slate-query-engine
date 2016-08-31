@@ -1,6 +1,7 @@
 port module Test.App exposing (..)
 
-import Time exposing (every)
+-- import Time exposing (every)
+
 import String exposing (..)
 import Dict exposing (Dict)
 import Html exposing (..)
@@ -61,7 +62,7 @@ type alias Entities =
 
 type Msg
     = Nop
-    | Tick Float
+      -- | Tick Float
     | SlateEngine Engine.Msg
     | EventError EventRecord ( Int, String )
     | EngineError ( Int, String )
@@ -139,10 +140,9 @@ update msg model =
         Nop ->
             model ! []
 
-        Tick time ->
-            -- outputting to a port is a Cmd msg
-            ( model, node 1 )
-
+        -- Tick time ->
+        --     -- outputting to a port is a Cmd msg
+        --     ( model, node 1 )
         SlateEngine engineMsg ->
             let
                 ( ( engineModel, engineCmd ), appMsgs ) =
@@ -441,16 +441,19 @@ testUpdate =
 --         , Leaf { query | entity = Just "X" }
 --         ]
 --         |> buildQuery ""
--- subscriptions : Model -> Sub Msg
--- subscriptions model =
---     Sub.none
 
 
-{-| subscribe to input from JS and the clock ticks every second
--}
 subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Sub.batch
-        ([ Time.every 10000 Tick
-         ]
-        )
+subscriptions model =
+    Sub.none
+
+
+
+-- {-| subscribe to input from JS and the clock ticks every second
+-- -}
+-- subscriptions : Model -> Sub Msg
+-- subscriptions _ =
+--     Sub.batch
+--         ([ Time.every 10000 Tick
+--          ]
+--         )
