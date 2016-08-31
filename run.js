@@ -2,21 +2,36 @@
 //		elm make Test/App.elm --output test.js
 
 // load Elm module
-const test = require('./test.js');
+const elm = require('./test.js');
 
 // get Elm ports
-const ports = test.Test.App.worker().ports;
+const ports = elm.Test.App.worker().ports;
 
-// // every second send Elm the string 'testing'
-// // first see subscription function in Elm
-// // where the message DisplayInput will be sent when data is received by Elm code
-// // then see DisplayInput message in the update function in Elm
-// setInterval(_ => ports.testIn.send('testing'), 1000);
-//
-// // subscribe to the output of the Elm code
-// // see: Tick message in the update function in Elm
-// ports.testOut.subscribe(time => console.log('time from Elm:', time));
+// keep our app alive until we get an exitCode from Elm or SIGINT or SIGTERM (see below)
+const keepAlive = new Promise((resolve, reject) => {
+	ports.node.subscribe(exitCode => {
+		console.log('exit code from Elm:', exitCode);
+		resolve(exitCode);
+	});
+}).then(exitCode => process.exit(exitCode));
 
-setInterval(_ => null, 5000);
-// this gets printed first
-console.log('done');
+process.on('uncaughtException', err => {
+	// logger.error({err: err}, `Uncaught exception:`);
+	console.log({err: err}, `Uncaught exception:`);
+	process.exit(1);
+});
+process.on('unhandledRejection', (reason, p) => {
+	// logger.error("Unhandled Rejection at: Promise ", p, " reason: ", reason);
+	console.log("Unhandled Rejection at: Promise ", p, " reason: ", reason);
+	process.exit(1);
+});
+process.on('SIGINT', () => {
+	// logger.info(`SIGINT received.`);
+	console.log(`SIGINT received.`);
+	process.exit(0);
+});
+process.on('SIGTERM', () => {
+	// logger.info(`SIGTERM received.`);
+	console.log(`SIGTERM received.`);
+	process.exit(0);
+});
