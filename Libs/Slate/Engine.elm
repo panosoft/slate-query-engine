@@ -1,4 +1,4 @@
-module Slate.Engine exposing (Model, Msg, update, initModel, executeQuery, refreshQuery, processEvents)
+module Slate.Engine exposing (Model, Msg, update, initModel, executeQuery, refreshQuery, processEvents, importQueryState, exportQueryState)
 
 import String exposing (..)
 import Dict exposing (..)
@@ -10,7 +10,7 @@ import List.Extra as ListE exposing (..)
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Regex exposing (HowMany(All, AtMost))
 import Regex.Extra as RegexE exposing (..)
-import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, parametricReplace)
+import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
 import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
 import Utils.Utils exposing (..)
 import Postgres.Postgres as Postgres exposing (..)
@@ -401,11 +401,11 @@ connectToDb model queryStateId tagger =
 executeQuery : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> Model msg -> Maybe String -> Query msg -> List String -> Result (List String) ( Model msg, Cmd msg, Int )
 executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additionalCriteria query rootIds =
     let
-        result =
+        templateResult =
             buildQueryTemplate query
     in
-        case result of
-            Ok templates ->
+        Result.map
+            (\templates ->
                 let
                     queryStateId =
                         model.nextId
@@ -432,17 +432,16 @@ executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additio
                         , eventProcessingErrorMsg = eventProcessingErrorMsg
                         , completionMsg = completionMsg
                         , tagger = tagger
-                        , messageDict = Slate.Query.buildMessageDict query
+                        , messageDict = buildMessageDict query
                         , first = True
                         }
 
                     cmd =
                         connectToDb model queryStateId tagger
                 in
-                    Ok ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
-
-            Err errs ->
-                Err errs
+                    ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
+            )
+            templateResult
 
 
 refreshQuery : (Msg -> msg) -> Model msg -> Int -> ( Model msg, Cmd msg )
@@ -482,8 +481,17 @@ encodeQueryState queryState =
             ]
 
 
-decodeQueryState : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
-decodeQueryState errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
+exportQueryState : Model msg -> Int -> String
+exportQueryState model queryStateId =
+    let
+        maybeQueryState =
+            Dict.get queryStateId model.queryStates
+    in
+        Maybe.map (\queryState -> encodeQueryState queryState) maybeQueryState // ""
+
+
+decodeQueryState : Model msg -> ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
+decodeQueryState model errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
     JD.decodeString
         (JD.succeed
             QueryState
@@ -504,3 +512,22 @@ decodeQueryState errorMsg eventProcessingErrorMsg completionMsg tagger messageDi
             <|| JD.succeed messageDict
         )
         json
+
+
+importQueryState : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> Query msg -> Model msg -> String -> Result String (Model msg)
+importQueryState errorMsg eventProcessingErrorMsg completionMsg tagger query model json =
+    let
+        templateResult =
+            buildQueryTemplate query
+
+        -- TODO vaidate
+    in
+        Result.map
+            (\queryState ->
+                let
+                    queryStateId =
+                        model.nextId
+                in
+                    { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
+            )
+            (decodeQueryState model errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)

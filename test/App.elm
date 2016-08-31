@@ -1,5 +1,6 @@
-module Test.App exposing (..)
+port module Test.App exposing (..)
 
+import Time exposing (every)
 import String exposing (..)
 import Dict exposing (Dict)
 import Html exposing (..)
@@ -17,6 +18,9 @@ import Slate.Event exposing (..)
 import Slate.Engine as Engine exposing (..)
 import Slate.Projection exposing (..)
 import Date exposing (Date)
+
+
+port node : Float -> Cmd msg
 
 
 type WrappedModel
@@ -57,6 +61,7 @@ type alias Entities =
 
 type Msg
     = Nop
+    | Tick Float
     | SlateEngine Engine.Msg
     | EventError EventRecord ( Int, String )
     | EngineError ( Int, String )
@@ -133,6 +138,10 @@ update msg model =
     case msg of
         Nop ->
             model ! []
+
+        Tick time ->
+            -- outputting to a port is a Cmd msg
+            ( model, node 1 )
 
         SlateEngine engineMsg ->
             let
@@ -225,6 +234,16 @@ update msg model =
                     if newModel.didRefresh == False then
                         refreshQuery newModel.engineModel queryId
                     else
+                        -- let
+                        --     json =
+                        --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
+                        --
+                        --     import' =
+                        --         Engine.importQueryState EngineError EventProcessingError EventProcessingComplete SlateEngine
+                        --
+                        --     result =
+                        --         Debug.log "import" <| import' personQuery newModel.engineModel json
+                        -- in
                         ( newModel.engineModel, Cmd.none )
             in
                 { newModel | didRefresh = True, engineModel = newEngineModel } ! [ cmd ]
@@ -422,8 +441,16 @@ testUpdate =
 --         , Leaf { query | entity = Just "X" }
 --         ]
 --         |> buildQuery ""
+-- subscriptions : Model -> Sub Msg
+-- subscriptions model =
+--     Sub.none
 
 
+{-| subscribe to input from JS and the clock ticks every second
+-}
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
+subscriptions _ =
+    Sub.batch
+        ([ Time.every 10000 Tick
+         ]
+        )
