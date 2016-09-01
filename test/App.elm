@@ -19,6 +19,7 @@ import Slate.Event exposing (..)
 import Slate.Engine as Engine exposing (..)
 import Slate.Projection exposing (..)
 import Date exposing (Date)
+import Postgres.Postgres as Postgres exposing (..)
 
 
 port node : Float -> Cmd msg
@@ -36,6 +37,7 @@ type alias Model =
     , engineModel : Engine.Model Msg
     , queries : Dict Int (WrappedModel -> Result (List String) WrappedModel)
     , didRefresh : Bool
+    , listenConnectionId : Maybe Int
     }
 
 
@@ -72,6 +74,11 @@ type Msg
     | MutatePerson EventRecord
     | MutateAddress EventRecord
     | EventProcessingError ( String, String )
+    | ConnectError ( Int, String )
+    | Connect Int
+    | ListenUnlistenError String ( Int, String )
+    | ListenUnlisten ( Int, String, String )
+    | ListenEvent ( Int, String, String )
 
 
 eventMsgDispatch : List ( AppEventMsg Msg, Dict String (Maybe Never) )
@@ -81,15 +88,35 @@ eventMsgDispatch =
     ]
 
 
+type alias ConnectionInfo =
+    { host : String
+    , port' : Int
+    , database : String
+    , user : String
+    , password : String
+    }
+
+
+connectionInfo : ConnectionInfo
+connectionInfo =
+    { host = "postgresDBServer"
+    , port' = 5432
+    , database = "test"
+    , user = "charles"
+    , password = "testpassword"
+    }
+
+
 initModel : Model
 initModel =
     { entirePersons = Dict.empty
     , entireAddresses = Dict.empty
     , persons = Dict.empty
     , addresses = Dict.empty
-    , engineModel = Engine.initModel "postgresDBServer" 5432 "test" "charles" "testpassword"
+    , engineModel = Engine.initModel connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password
     , queries = Dict.empty
     , didRefresh = False
+    , listenConnectionId = Nothing
     }
 
 
@@ -111,7 +138,10 @@ init =
     in
         case result of
             Ok ( engineModel, cmd, queryId ) ->
-                { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries } ! [ cmd ]
+                { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries }
+                    ! [ cmd
+                      , Postgres.connect connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password ConnectError Connect
+                      ]
 
             Err err ->
                 let
@@ -139,6 +169,20 @@ update msg model =
     case msg of
         Nop ->
             model ! []
+
+        ConnectError ( connectionId, error ) ->
+            let
+                l =
+                    Debug.log "ConnectError" ( connectionId, error )
+            in
+                model ! []
+
+        Connect connectionId ->
+            let
+                l =
+                    Debug.log "Connect" connectionId
+            in
+                { model | listenConnectionId = Just connectionId } ! []
 
         -- Tick time ->
         --     -- outputting to a port is a Cmd msg
@@ -273,6 +317,27 @@ update msg model =
             let
                 l =
                     Debug.crash <| "Event Processing Error: " ++ (toString eventStr) ++ " error: " ++ error
+            in
+                model ! []
+
+        ListenUnlistenError channel ( connectionId, error ) ->
+            let
+                l =
+                    Debug.crash <| "Cannot listen to channel ':  " ++ channel ++ "' error: " ++ error
+            in
+                model ! []
+
+        ListenUnlisten ( connectionId, channel, type' ) ->
+            let
+                l =
+                    Debug.log "ListenUnlisten" ( connectionId, channel, type' )
+            in
+                model ! []
+
+        ListenEvent ( connectionId, channel, message ) ->
+            let
+                l =
+                    Debug.log "ListenEvent" ( connectionId, channel, message )
             in
                 model ! []
 
@@ -445,7 +510,12 @@ testUpdate =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    let
+        channel =
+            "eventsinsert"
+    in
+        Maybe.map (\connectionId -> Postgres.listen (model.listenConnectionId // 1) channel (ListenUnlistenError channel) ListenUnlisten ListenEvent) model.listenConnectionId
+            // Sub.none
 
 
 

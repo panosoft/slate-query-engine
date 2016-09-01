@@ -29,6 +29,8 @@ const QueryStream = require('pg-query-stream');
 var _user$project$Native_Postgres = function() {
 	const createConnectionUrl = (host, port, database, user, password) => `postgres://${user}:${password}@${host}:${port}/${database}`;
 
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Cmds
 	const _disconnect = (dbClient, discardConnection, cb) => {
 		try {
 			// pooled client
@@ -102,19 +104,40 @@ var _user$project$Native_Postgres = function() {
 		});
 	};
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Cmds
+	// Subs
+	const _listen = (dbClient, sql, routeCb, cb) => {
+		_executeSQL(dbClient, sql, (err, _) => {
+			const nativeListener = message => {
+				E.Scheduler.rawSpawn(routeCb(message.payload));
+			};
+			dbClient.client.on('notification', nativeListener);
+			cb(null, nativeListener);
+		});
+	};
+	const _unlisten = (dbClient, sql, nativeListener, cb) => {
+		_executeSQL(dbClient, sql, (err, _) => {
+			dbClient.client.removeListener('notification', nativeListener);
+			cb();
+		});
+	};
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////
 	const connect = cmd.cmdCall6_1(_connect);
 	const disconnect = cmd.cmdCall2_0(_disconnect, cmd.unwrap({1:'_0'}));
 	const query = cmd.cmdCall3_2(_query, cmd.unwrap({1:'_0'}));
 	const moreQueryResults = cmd.cmdCall3_2(_moreQueryResults, cmd.unwrap({1:'_0'}));
 	const executeSQL = cmd.cmdCall2_1(_executeSQL, cmd.unwrap({1:'_0'}));
+	const listen = cmd.cmdCall3_1(_listen, cmd.unwrap({1:'_0'}));
+	const unlisten = cmd.cmdCall3_0(_unlisten, cmd.unwrap({1:'_0'}));
 
 	return {
 		connect: F7(connect),
 		disconnect: F3(disconnect),
 		query: F4(query),
 		moreQueryResults: F4(moreQueryResults),
-		executeSQL: F3(executeSQL)
+		executeSQL: F3(executeSQL),
+		///////////////////////////////////////////
+		listen: F4(listen),
+		unlisten: F4(unlisten)
 	};
 
 }();
