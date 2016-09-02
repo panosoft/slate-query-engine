@@ -76,6 +76,7 @@ type Msg
     | EventProcessingError ( String, String )
     | ConnectError ( Int, String )
     | Connect Int
+    | ConnectionLost ( Int, String )
     | ListenUnlistenError String ( Int, String )
     | ListenUnlisten ( Int, String, String )
     | ListenEvent ( Int, String, String )
@@ -140,7 +141,7 @@ init =
             Ok ( engineModel, cmd, queryId ) ->
                 { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries }
                     ! [ cmd
-                      , Postgres.connect connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password ConnectError Connect
+                      , Postgres.connect connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password ConnectError Connect ConnectionLost
                       ]
 
             Err err ->
@@ -183,6 +184,13 @@ update msg model =
                     Debug.log "Connect" connectionId
             in
                 { model | listenConnectionId = Just connectionId } ! []
+
+        ConnectionLost ( connectionId, error ) ->
+            let
+                l =
+                    Debug.log "ConnectionLost" ( connectionId, error )
+            in
+                model ! []
 
         -- Tick time ->
         --     -- outputting to a port is a Cmd msg

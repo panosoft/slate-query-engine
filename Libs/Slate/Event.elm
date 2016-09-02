@@ -2,12 +2,10 @@ module Slate.Event exposing (EventRecord, Event, EventData, eventRecordDecoder)
 
 import Json.Decode as Json exposing (..)
 import Json.Decode.Extra exposing (..)
-import Json.Helper exposing ((///), (<||))
+import Json.Helper exposing ((////), (<||))
 import Date exposing (Date)
 
 
-{-| TODO Incomplete definition for Slate Events
--}
 type alias EventRecord =
     { id : String
     , ts : Date
@@ -24,8 +22,6 @@ type alias Event =
     }
 
 
-{-| TODO Incomplete defition for Slate Data
--}
 type alias EventData =
     { entityId : String
     , value : Maybe String

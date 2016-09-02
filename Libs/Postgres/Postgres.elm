@@ -6,22 +6,32 @@ import Dict exposing (Dict)
 import Native.Postgres
 
 
--- TODO handle highwatermark and batchsize
+-- Native structures
 
 
-{-| Native client structure
--}
 type Client
     = Client
 
 
+type Stream
+    = Stream
+
+
+type NativeListener
+    = NativeListener
+
+
+{-| Connection
+-}
 type alias Connection msg =
-    { disconnectionTagger : Maybe (ConnectTagger msg)
-    , connectionTagger : Maybe (ConnectTagger msg)
+    { connectionLostTagger : ConnectionLostTagger msg
+    , connectionTagger : ConnectTagger msg
+    , errorTagger : ErrorTagger msg
+    , nativeListener : Maybe NativeListener
+    , disconnectionTagger : Maybe (ConnectTagger msg)
     , queryTagger : Maybe (QueryTagger msg)
     , executeTagger : Maybe (ExecuteTagger msg)
     , listenTagger : Maybe (ListenTagger msg)
-    , errorTagger : ErrorTagger msg
     , eventTagger : Maybe (ListenEventTagger msg)
     , client : Maybe Client
     , stream : Maybe Stream
@@ -30,8 +40,8 @@ type alias Connection msg =
     }
 
 
-type NativeListener
-    = NativeListener
+
+-- Listener definitions
 
 
 type alias ListenerState msg =
@@ -50,6 +60,8 @@ type alias NativeListenerDict =
     Dict Int NativeListener
 
 
+{-| Effects manager state
+-}
 type alias State msg =
     { nextId : Int
     , connections : Dict Int (Connection msg)
@@ -58,12 +70,20 @@ type alias State msg =
     }
 
 
+
+-- Taggers
+
+
 type alias ErrorTagger msg =
     ( Int, String ) -> msg
 
 
 type alias ConnectTagger msg =
     Int -> msg
+
+
+type alias ConnectionLostTagger msg =
+    ( Int, String ) -> msg
 
 
 type alias DisconnectTagger msg =
@@ -78,12 +98,8 @@ type alias ExecuteTagger msg =
     ( Int, Int ) -> msg
 
 
-type MyCmd msg
-    = Connect String Int String String String (ErrorTagger msg) (ConnectTagger msg)
-    | Disconnect Int Bool (ErrorTagger msg) (DisconnectTagger msg)
-    | Query Int String Int (ErrorTagger msg) (QueryTagger msg)
-    | MoreQueryResults Int (ErrorTagger msg) (QueryTagger msg)
-    | ExecuteSQL Int String (ErrorTagger msg) (ExecuteTagger msg)
+
+-- helpers
 
 
 (//) : Maybe a -> a -> a
@@ -91,16 +107,38 @@ type MyCmd msg
     flip Maybe.withDefault
 
 
+(&>) : Task x a -> Task x b -> Task x b
+(&>) t1 t2 =
+    t1 `Task.andThen` \_ -> t2
+
+
+(&>>) : Task x a -> (a -> Task x b) -> Task x b
+(&>>) t1 f =
+    t1 `Task.andThen` f
+
+
+
+-- start effects manager
+
+
 init : Task Never (State msg)
 init =
     Task.succeed (State 0 Dict.empty Dict.empty Dict.empty)
 
 
+type MyCmd msg
+    = Connect String Int String String String (ErrorTagger msg) (ConnectTagger msg) (ConnectionLostTagger msg)
+    | Disconnect Int Bool (ErrorTagger msg) (DisconnectTagger msg)
+    | Query Int String Int (ErrorTagger msg) (QueryTagger msg)
+    | MoreQueryResults Int (ErrorTagger msg) (QueryTagger msg)
+    | ExecuteSQL Int String (ErrorTagger msg) (ExecuteTagger msg)
+
+
 cmdMap : (a -> b) -> MyCmd a -> MyCmd b
 cmdMap f cmd =
     case cmd of
-        Connect host port' database user password errorTagger tagger ->
-            Connect host port' database user password (f << errorTagger) (f << tagger)
+        Connect host port' database user password errorTagger tagger connectionLostTagger ->
+            Connect host port' database user password (f << errorTagger) (f << tagger) (f << connectionLostTagger)
 
         Disconnect client discardConnection errorTagger tagger ->
             Disconnect client discardConnection (f << errorTagger) (f << tagger)
@@ -124,9 +162,9 @@ connectionTimeout =
     15000
 
 
-connect : String -> Int -> String -> String -> String -> ErrorTagger msg -> ConnectTagger msg -> Cmd msg
-connect host port' database user password errorTagger tagger =
-    command (Connect host port' database user password errorTagger tagger)
+connect : String -> Int -> String -> String -> String -> ErrorTagger msg -> ConnectTagger msg -> ConnectionLostTagger msg -> Cmd msg
+connect host port' database user password errorTagger tagger connectionLostTagger =
+    command (Connect host port' database user password errorTagger tagger connectionLostTagger)
 
 
 disconnect : Int -> Bool -> ErrorTagger msg -> DisconnectTagger msg -> Cmd msg
@@ -150,7 +188,7 @@ executeSQL connectionId sql errorTagger tagger =
 
 
 
--- subscriptions
+-- subscription taggers
 
 
 type alias ListenTagger msg =
@@ -172,19 +210,17 @@ subMap f sub =
             Listen connectionId channel (f << errorTagger) (f << listenTagger) (f << eventTagger)
 
 
+
+-- subscriptions
+
+
 listen : Int -> String -> ErrorTagger msg -> ListenTagger msg -> ListenEventTagger msg -> Sub msg
 listen connectionId channel errorTagger listenTagger eventTagger =
     subscription (Listen connectionId channel errorTagger listenTagger eventTagger)
 
 
-(&>) : Task x a -> Task x b -> Task x b
-(&>) t1 t2 =
-    t1 `Task.andThen` \_ -> t2
 
-
-(&>>) : Task x a -> (a -> Task x b) -> Task x b
-(&>>) t1 f =
-    t1 `Task.andThen` f
+-- effect managers API
 
 
 onEffects : Platform.Router msg Msg -> List (MyCmd msg) -> List (MySub msg) -> State msg -> Task Never (State msg)
@@ -296,21 +332,21 @@ updateConnection state connectionId newConnection =
     { state | connections = Dict.insert connectionId newConnection state.connections }
 
 
-settings0 : Platform.Router msg Msg -> (a -> Msg) -> Msg -> { onError : a -> Task msg (), onSuccess : Never -> Task msg () }
+settings0 : Platform.Router msg Msg -> (a -> Msg) -> Msg -> { onError : a -> Task msg (), onSuccess : Never -> Task x () }
 settings0 router errorTagger tagger =
     { onError = \err -> Platform.sendToSelf router (errorTagger err)
     , onSuccess = \_ -> Platform.sendToSelf router tagger
     }
 
 
-settings1 : Platform.Router msg Msg -> (a -> Msg) -> (b -> Msg) -> { onError : a -> Task Never (), onSuccess : b -> Task msg () }
+settings1 : Platform.Router msg Msg -> (a -> Msg) -> (b -> Msg) -> { onError : a -> Task Never (), onSuccess : b -> Task x () }
 settings1 router errorTagger tagger =
     { onError = \err -> Platform.sendToSelf router (errorTagger err)
     , onSuccess = \result1 -> Platform.sendToSelf router (tagger result1)
     }
 
 
-settings2 : Platform.Router msg Msg -> (a -> Msg) -> (b -> c -> Msg) -> { onError : a -> Task Never (), onSuccess : b -> c -> Task msg () }
+settings2 : Platform.Router msg Msg -> (a -> Msg) -> (b -> c -> Msg) -> { onError : a -> Task Never (), onSuccess : b -> c -> Task x () }
 settings2 router errorTagger tagger =
     { onError = \err -> Platform.sendToSelf router (errorTagger err)
     , onSuccess = \result1 result2 -> Platform.sendToSelf router (tagger result1 result2)
@@ -325,15 +361,18 @@ invalidConnectionId router errorTagger connectionId =
 handleCmd : Platform.Router msg Msg -> State msg -> MyCmd msg -> ( Task Never (), State msg )
 handleCmd router state cmd =
     case cmd of
-        Connect host port' database user password errorTagger tagger ->
+        Connect host port' database user password errorTagger tagger connectionLostTagger ->
             let
                 connectionId =
                     state.nextId
 
                 newConnection =
-                    Connection Nothing (Just tagger) Nothing Nothing Nothing errorTagger Nothing Nothing Nothing Nothing Nothing
+                    Connection connectionLostTagger tagger errorTagger Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
+                connectionLostCb err =
+                    Platform.sendToSelf router (ConnectionLost connectionId err)
             in
-                ( Native.Postgres.connect (settings1 router (ErrorConnect connectionId) (SuccessConnect connectionId)) connectionTimeout host port' database user password
+                ( Native.Postgres.connect (settings2 router (ErrorConnect connectionId) (SuccessConnect connectionId)) connectionTimeout host port' database user password connectionLostCb
                 , { state | nextId = state.nextId + 1, connections = Dict.insert connectionId newConnection state.connections }
                 )
 
@@ -342,7 +381,7 @@ handleCmd router state cmd =
                 maybeTask =
                     Maybe.map
                         (\connection ->
-                            ( Native.Postgres.disconnect (settings0 router (ErrorDisconnect connectionId) (SuccessDisconnect connectionId)) connection.client discardConnection
+                            ( Native.Postgres.disconnect (settings0 router (ErrorDisconnect connectionId) (SuccessDisconnect connectionId)) connection.client discardConnection connection.nativeListener
                             , updateConnection state connectionId { connection | disconnectionTagger = Just tagger, errorTagger = errorTagger }
                             )
                         )
@@ -355,7 +394,7 @@ handleCmd router state cmd =
                 maybeTask =
                     Maybe.map
                         (\connection ->
-                            ( Native.Postgres.query (settings2 router (ErrorQuery connectionId sql) (SuccessQuery connectionId)) connection.client sql recordCount
+                            ( Native.Postgres.query (settings2 router (ErrorQuery connectionId sql) (SuccessQuery connectionId)) connection.client sql recordCount connection.nativeListener
                             , updateConnection state connectionId { connection | sql = Just sql, recordCount = Just recordCount, queryTagger = Just tagger, errorTagger = errorTagger }
                             )
                         )
@@ -411,13 +450,10 @@ handleCmd router state cmd =
                 maybeTask // ( invalidConnectionId router errorTagger connectionId, state )
 
 
-type Stream
-    = Stream
-
-
 type Msg
-    = SuccessConnect Int Client
+    = SuccessConnect Int Client NativeListener
     | ErrorConnect Int String
+    | ConnectionLost Int String
     | SuccessDisconnect Int
     | ErrorDisconnect Int String
     | SuccessQuery Int Stream (List String)
@@ -484,18 +520,15 @@ onSelfMsg router selfMsg state =
                 withConnection state connectionId process
     in
         case selfMsg of
-            SuccessConnect connectionId client ->
+            SuccessConnect connectionId client nativeListener ->
                 let
                     process connection =
                         let
                             newConnection =
-                                { connection | client = Just client }
-
-                            sendToApp tagger =
-                                Platform.sendToApp router (tagger connectionId)
-                                    &> Task.succeed { state | connections = Dict.insert connectionId newConnection state.connections }
+                                { connection | client = Just client, nativeListener = Just nativeListener }
                         in
-                            withTagger state newConnection.connectionTagger "Connect" sendToApp
+                            Platform.sendToApp router (newConnection.connectionTagger connectionId)
+                                &> Task.succeed { state | connections = Dict.insert connectionId newConnection state.connections }
                 in
                     withConnection state connectionId process
 
@@ -503,6 +536,14 @@ onSelfMsg router selfMsg state =
                 let
                     process connection =
                         Platform.sendToApp router (connection.errorTagger ( connectionId, err ))
+                            &> Task.succeed { state | connections = Dict.remove connectionId state.connections }
+                in
+                    withConnection state connectionId process
+
+            ConnectionLost connectionId err ->
+                let
+                    process connection =
+                        Platform.sendToApp router (connection.connectionLostTagger ( connectionId, err ))
                             &> Task.succeed { state | connections = Dict.remove connectionId state.connections }
                 in
                     withConnection state connectionId process

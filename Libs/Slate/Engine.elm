@@ -82,6 +82,7 @@ type Msg
     = Nop
     | ConnectError Int ( Int, String )
     | Connect Int Int
+    | ConnectionLost Int ( Int, String )
     | DisconnectError Int ( Int, String )
     | Disconnect Int Int
     | Events Int ( Int, List String )
@@ -98,6 +99,15 @@ getQueryState queryStateId model =
             Debug.crash <| "Query Id: " ++ (toString queryStateId) ++ " is not in model: " ++ (toString model)
 
 
+connectionFailure : Int -> Model msg -> String -> ( ( Model msg, Cmd Msg ), List msg )
+connectionFailure queryStateId model error =
+    let
+        queryState =
+            getQueryState queryStateId model
+    in
+        ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
+
+
 update : Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
 update msg model =
     case msg of
@@ -108,11 +118,15 @@ update msg model =
             let
                 l =
                     Debug.log "ConnectError" ( queryStateId, connectionId, error )
-
-                queryState =
-                    getQueryState queryStateId model
             in
-                ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
+                connectionFailure queryStateId model error
+
+        ConnectionLost queryStateId ( connectionId, error ) ->
+            let
+                l =
+                    Debug.log "ConnectLost" ( queryStateId, connectionId, error )
+            in
+                connectionFailure queryStateId model error
 
         Connect queryStateId connectionId ->
             let
@@ -135,7 +149,7 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
             in
-                ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
+                connectionFailure queryStateId model error
 
         Disconnect queryStateId connectionId ->
             let
@@ -184,11 +198,7 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
             in
-                ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
-
-
-
--- TODO write this (called when connection is complete)
+                connectionFailure queryStateId model error
 
 
 templateReplace : List ( String, String ) -> String -> String
@@ -391,7 +401,7 @@ nextQuery queryStateId connectionId =
 
 connectToDb : Model msg -> Int -> (Msg -> msg) -> Cmd msg
 connectToDb model queryStateId tagger =
-    Postgres.connect model.host model.port' model.database model.user model.password (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId))
+    Postgres.connect model.host model.port' model.database model.user model.password (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId))
 
 
 
@@ -519,8 +529,6 @@ importQueryState errorMsg eventProcessingErrorMsg completionMsg tagger query mod
     let
         templateResult =
             buildQueryTemplate query
-
-        -- TODO vaidate
     in
         Result.map
             (\queryState ->
