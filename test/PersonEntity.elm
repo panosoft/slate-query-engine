@@ -1,13 +1,12 @@
 module PersonEntity exposing (..)
 
 import Dict exposing (..)
-import Json.Decode as Json exposing ((:=), maybe, string, int, float)
-import Json.Helper exposing (..)
+import Json.Encode as JE exposing (..)
+import Json.Decode as JD exposing (..)
+import Json.Helper as Json exposing (..)
 import Slate.Event exposing (Event)
-import Slate.Schema exposing (..)
 import Slate.Reference exposing (..)
 import Slate.EventProcessing exposing (..)
-import PersonSchema exposing (..)
 import AddressEntity exposing (..)
 
 
@@ -19,6 +18,11 @@ type alias EntirePerson =
     , age : Maybe Int
     , address : Maybe EntityReference
     }
+
+
+(//) : Maybe a -> a -> a
+(//) =
+    flip Maybe.withDefault
 
 
 {-| Starting point for all subSets of Person
@@ -66,17 +70,55 @@ defaultName =
     }
 
 
-nameDecoder : Json.Decoder Name
+nameEncode : Name -> JE.Value
+nameEncode name =
+    JE.object
+        [ ( "first", JE.string name.first )
+        , ( "middle", JE.string name.middle )
+        , ( "last", JE.string name.last )
+        ]
+
+
+nameDecoder : JD.Decoder Name
 nameDecoder =
-    Json.succeed Name
-        <|| ("first" := string)
-        <|| ("middle" := string)
-        <|| ("last" := string)
+    JD.succeed Name
+        <|| ("first" := JD.string)
+        <|| ("middle" := JD.string)
+        <|| ("last" := JD.string)
 
 
-eventMap : Dict String (Maybe Never)
-eventMap =
-    Slate.Schema.eventMap personSchema personProperties
+
+-- encoding/decoding
+
+
+entirePersonEncode : EntirePerson -> String
+entirePersonEncode person =
+    JE.encode 0 <|
+        JE.object
+            [ ( "name", Json.encMaybe nameEncode person.name )
+            , ( "age", Json.encMaybe JE.int person.age )
+            , ( "address", Json.encMaybe Slate.Reference.entityReferenceEncode person.address )
+            ]
+
+
+entirePersonDecode : String -> Result String EntirePerson
+entirePersonDecode json =
+    JD.decodeString
+        ((JD.succeed EntirePerson)
+            <|| ("name" := JD.maybe nameDecoder)
+            <|| ("age" := JD.maybe JD.int)
+            <|| ("address" := JD.maybe Slate.Reference.entityReferenceDecoder)
+        )
+        json
+
+
+handleMutation : Dict String EntirePerson -> Dict String EntireAddress -> Event -> Result String (Dict String EntirePerson)
+handleMutation dict addresses event =
+    Result.map
+        (\maybePerson ->
+            Maybe.map (\person -> Dict.insert event.data.entityId person dict) maybePerson // Dict.remove event.data.entityId dict
+        )
+        (mutate event (lookupEntity dict event entirePersonShell) addresses)
 
 
 {-| Mutate the Person based on an event
@@ -85,7 +127,7 @@ mutate : Event -> EntirePerson -> Dict String EntireAddress -> Result String (Ma
 mutate event entity addresses =
     let
         decodeName event =
-            getConvertedValue (Json.decodeString nameDecoder) event
+            getConvertedValue (JD.decodeString nameDecoder) event
 
         setName value entity =
             { entity | name = value }

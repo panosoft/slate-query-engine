@@ -1,10 +1,12 @@
 module AddressEntity exposing (..)
 
 import Dict exposing (..)
-import Slate.Schema exposing (..)
+import Json.Encode as JE exposing (..)
+import Json.Decode as JD exposing (..)
+import Json.Helper as Json exposing (..)
 import Slate.Event exposing (Event)
 import Slate.EventProcessing exposing (..)
-import AddressSchema exposing (..)
+import Slate.Reference exposing (..)
 
 
 type alias EntireAddress =
@@ -13,6 +15,11 @@ type alias EntireAddress =
     , state : Maybe String
     , zip : Maybe String
     }
+
+
+(//) : Maybe a -> a -> a
+(//) =
+    flip Maybe.withDefault
 
 
 {-| Starting point for all subSets of Addresses
@@ -44,9 +51,40 @@ defaultEntireAddress =
     }
 
 
-eventMap : Dict String (Maybe Never)
-eventMap =
-    Slate.Schema.eventMap addressSchema addressProperties
+
+-- encoding/decoding
+
+
+entireAddressEncode : EntireAddress -> String
+entireAddressEncode address =
+    JE.encode 0 <|
+        JE.object
+            [ ( "street", Json.encMaybe JE.string address.street )
+            , ( "city", Json.encMaybe JE.string address.city )
+            , ( "state", Json.encMaybe JE.string address.state )
+            , ( "zip", Json.encMaybe JE.string address.zip )
+            ]
+
+
+entireAddressDecode : String -> Result String EntireAddress
+entireAddressDecode json =
+    JD.decodeString
+        ((JD.succeed EntireAddress)
+            <|| ("street" := JD.maybe JD.string)
+            <|| ("city" := JD.maybe JD.string)
+            <|| ("state" := JD.maybe JD.string)
+            <|| ("zip" := JD.maybe JD.string)
+        )
+        json
+
+
+handleMutation : Dict String EntireAddress -> Event -> Result String (Dict String EntireAddress)
+handleMutation dict event =
+    Result.map
+        (\maybeAddress ->
+            Maybe.map (\address -> Dict.insert event.data.entityId address dict) maybeAddress // Dict.remove event.data.entityId dict
+        )
+        (mutate event (lookupEntity dict event entireAddressShell))
 
 
 {-| Mutate the Address based on an event

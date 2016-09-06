@@ -1,4 +1,4 @@
-module Slate.Engine exposing (Model, Msg, update, initModel, executeQuery, refreshQuery, processEvents, importQueryState, exportQueryState)
+module Slate.Engine exposing (Model, Msg, update, initModel, executeQuery, refreshQuery, importQueryState, exportQueryState)
 
 import String exposing (..)
 import Dict exposing (..)
@@ -474,8 +474,8 @@ closeQuery model queryStateId =
     { model | queryStates = Dict.remove queryStateId model.queryStates }
 
 
-encodeQueryState : QueryState msg -> String
-encodeQueryState queryState =
+queryStateEncode : QueryState msg -> String
+queryStateEncode queryState =
     JE.encode 0 <|
         JE.object
             [ ( "first", JE.bool queryState.first )
@@ -497,14 +497,13 @@ exportQueryState model queryStateId =
         maybeQueryState =
             Dict.get queryStateId model.queryStates
     in
-        Maybe.map (\queryState -> encodeQueryState queryState) maybeQueryState // ""
+        Maybe.map (\queryState -> queryStateEncode queryState) maybeQueryState // ""
 
 
-decodeQueryState : Model msg -> ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
-decodeQueryState model errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
+queryStateDecode : Model msg -> ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
+queryStateDecode model errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
     JD.decodeString
-        (JD.succeed
-            QueryState
+        ((JD.succeed QueryState)
             <|| ("first" := JD.bool)
             <|| ("rootEntity" := JD.string)
             <|| ("badQueryState" := JD.bool)
@@ -538,4 +537,4 @@ importQueryState errorMsg eventProcessingErrorMsg completionMsg tagger query mod
                 in
                     { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
             )
-            (decodeQueryState model errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)
+            (queryStateDecode model errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)

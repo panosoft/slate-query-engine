@@ -1,10 +1,5 @@
 module Slate.Schema exposing (..)
 
-import Dict exposing (..)
-import Json.Decode as JD
-import Json.Encode as JE
-import Json.Helper as Json
-
 
 type alias EntitySchema =
     { type' : String
@@ -34,15 +29,3 @@ propSchema =
     , eventNames = []
     , owned = False
     }
-
-
-eventMap : EntitySchema -> List PropertySchema -> Dict String (Maybe Never)
-eventMap entitySchema propertySchema =
-    let
-        entityEvents =
-            entitySchema.eventNames
-
-        propertyEvents =
-            List.concat <| List.map .eventNames propertySchema
-    in
-        Dict.fromList <| List.map (Nothing |> flip (,)) <| List.concat [ entityEvents, propertyEvents ]

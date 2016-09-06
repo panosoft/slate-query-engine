@@ -11,7 +11,7 @@ import PersonEntity exposing (EntirePerson, defaultEntirePerson)
 import AddressEntity exposing (EntireAddress, defaultEntireAddress)
 import PersonSchema exposing (..)
 import AddressSchema exposing (..)
-import Utils.Utils exposing (..)
+import Utils.Utils as Utils exposing (..)
 import Slate.Utils exposing (..)
 import Slate.Query exposing (..)
 import Slate.Reference exposing (..)
@@ -80,13 +80,6 @@ type Msg
     | ListenUnlistenError String ( Int, String )
     | ListenUnlisten ( Int, String, String )
     | ListenEvent ( Int, String, String )
-
-
-eventMsgDispatch : List ( AppEventMsg Msg, Dict String (Maybe Never) )
-eventMsgDispatch =
-    [ ( MutatePerson, PersonEntity.eventMap )
-    , ( MutateAddress, AddressEntity.eventMap )
-    ]
 
 
 type alias ConnectionInfo =
@@ -165,6 +158,11 @@ main =
         }
 
 
+mutationError : String -> Model -> (String -> ( Model, Cmd Msg ))
+mutationError type' model =
+    (\err -> update (MutationError type' err) model)
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -219,38 +217,14 @@ update msg model =
                 newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
 
         MutatePerson eventRecord ->
-            let
-                event =
-                    eventRecord.event
-            in
-                case PersonEntity.mutate event (lookupEntity model.entirePersons event PersonEntity.entirePersonShell) model.entireAddresses of
-                    Ok maybePerson ->
-                        case maybePerson of
-                            Just person ->
-                                { model | entirePersons = Dict.insert event.data.entityId person model.entirePersons } ! []
-
-                            Nothing ->
-                                { model | entirePersons = Dict.remove event.data.entityId model.entirePersons } ! []
-
-                    Err err ->
-                        update (MutationError "Person" err) model
+            Result.map (\newDict -> { model | entirePersons = newDict } ! [])
+                (PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event)
+                /// mutationError "Person" model
 
         MutateAddress eventRecord ->
-            let
-                event =
-                    eventRecord.event
-            in
-                case AddressEntity.mutate event (lookupEntity model.entireAddresses event AddressEntity.entireAddressShell) of
-                    Ok maybeAddress ->
-                        case maybeAddress of
-                            Just address ->
-                                { model | entireAddresses = Dict.insert event.data.entityId address model.entireAddresses } ! []
-
-                            Nothing ->
-                                { model | entireAddresses = Dict.remove event.data.entityId model.entireAddresses } ! []
-
-                    Err err ->
-                        update (MutationError "Address" err) model
+            Result.map (\newDict -> { model | entireAddresses = newDict } ! [])
+                (AddressEntity.handleMutation model.entireAddresses eventRecord.event)
+                /// mutationError "Address" model
 
         EngineError ( queryId, err ) ->
             let
