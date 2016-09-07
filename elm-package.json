@@ -7,7 +7,8 @@
         ".",
         "Libs/",
         "Test/",
-        "Libs/Postgres/"
+        "Libs/Postgres/",
+        "Libs/DebugF/"
     ],
     "exposed-modules": [],
     "native-modules": true,

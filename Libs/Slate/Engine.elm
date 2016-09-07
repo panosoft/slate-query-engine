@@ -10,6 +10,7 @@ import List.Extra as ListE exposing (..)
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Regex exposing (HowMany(All, AtMost))
 import Regex.Extra as RegexE exposing (..)
+import DebugF exposing (..)
 import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
 import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
 import Utils.Utils exposing (..)
@@ -161,7 +162,10 @@ update msg model =
         Events queryStateId ( connectionId, eventStrs ) ->
             let
                 l =
-                    Debug.log (toString eventStrs) "Event"
+                    DebugF.log "Event" eventStrs
+
+                ll =
+                    DebugF.log "Model" model
 
                 ( updatedModel, msgs ) =
                     processEvents model queryStateId eventStrs
@@ -292,7 +296,7 @@ startQuery model queryStateId connectionId =
                         RegexE.replace All "\\{\\{.+?\\-entityIds\\}\\}" (RegexE.simpleReplacer "1!=1") sqlWithEntityIds
 
                     ll =
-                        Debug.log sql "sql"
+                        DebugF.log "sql" sql
                 in
                     ( updateQueryState model { queryState | currentTemplate = queryState.currentTemplate + 1 }
                     , Postgres.query connectionId sql queryBatchSize (QueryError queryStateId) (Events queryStateId)
