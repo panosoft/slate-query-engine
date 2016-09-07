@@ -46,13 +46,3 @@ decConvertDict valuesConverter keyDecoder valueDecoder =
 decDict : Decoder comparable -> Decoder value -> Decoder (Dict comparable value)
 decDict =
     decConvertDict identity
-
-
-
--- decDict : Decoder comparable -> Decoder value -> Decoder (Dict comparable value)
--- decDict keyDecoder valueDecoder =
---     let
---         makeDict keys values =
---             Dict.fromList <| List.map2 (,) keys values
---     in
---         JD.object2 makeDict ("keys" := JD.list keyDecoder) ("values" := JD.list valueDecoder)
