@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "description": "Native elm code for PostGres on Node",
+  "description": "Prototype Elm version of slate",
   "main": "postgres.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
