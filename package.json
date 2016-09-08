@@ -1,8 +1,8 @@
 {
   "version": "0.1.0",
   "description": "Prototype Elm version of slate",
-  "main": "postgres.js",
   "scripts": {
+	"run": "elm make Test/App.elm --output test.js && node run.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
