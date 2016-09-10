@@ -3,6 +3,7 @@ effect module Postgres.Postgres where { command = MyCmd, subscription = MySub } 
 import String exposing (..)
 import Task exposing (Task)
 import Dict exposing (Dict)
+import DebugF exposing (..)
 import Native.Postgres
 
 
@@ -420,7 +421,7 @@ handleCmd router state cmd =
                         connection.sql
                         connection.recordCount
                         connection.stream
-                        /!/ (\_ -> ( crashTask () <| "Invalid connection state: " ++ (toString <| printableConnection connection), state ))
+                        /!/ (\_ -> ( crashTask () <| "Invalid connection state: " ++ (toStringF <| printableConnection connection), state ))
                 )
                 (Dict.get connectionId state.connections)
                 // ( invalidConnectionId router errorTagger connectionId, state )
@@ -481,7 +482,7 @@ withConnection state connectionId f =
                 f stateConnection
 
             Nothing ->
-                crashTask state <| "Connection Id: " ++ (toString connectionId) ++ " is not in state: " ++ (toString <| printableState state)
+                crashTask state <| "Connection Id: " ++ (toStringF connectionId) ++ " is not in state: " ++ (toStringF <| printableState state)
 
 
 withTagger : State msg -> Maybe tagger -> String -> (tagger -> Task Never (State msg)) -> Task Never (State msg)
@@ -491,7 +492,7 @@ withTagger state maybeTagger type' f =
             f tagger
 
         Nothing ->
-            crashTask state <| "Missing " ++ type' ++ " Tagger in state: " ++ (toString <| printableState state)
+            crashTask state <| "Missing " ++ type' ++ " Tagger in state: " ++ (toStringF <| printableState state)
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
