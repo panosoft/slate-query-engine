@@ -1,6 +1,7 @@
 var _user$project$Native_DebugF = function() {
 	function toStringF(v)
 	{
+		var objectsEncountered = [];
 		var indentStr = '  ';
 		var indent = function(depth) {
 			var indent = '';
@@ -159,7 +160,7 @@ var _user$project$Native_DebugF = function() {
 				for (var i in v)
 				{
 					if (i === 'ctor') continue;
-					var str = toString2(v[i], depth + 1);
+					var str = String(toString2(v[i], depth + 1));
 					var c0 = str[0];
 					var parenless = c0 === '{' || c0 === '(' || c0 === '<' || c0 === '"' || str.indexOf(' ') < 0;
 					output += ' ' + (parenless ? str : '(' + str + ')');
@@ -169,6 +170,9 @@ var _user$project$Native_DebugF = function() {
 
 			if (type === 'object')
 			{
+				if (objectsEncountered.indexOf(v) != -1)
+					return '<circular reference>';
+				objectsEncountered.push(v);
 				if (v instanceof Date)
 				{
 					return '<' + v.toString() + '>';
