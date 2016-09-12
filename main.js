@@ -11,25 +11,21 @@ const ports = elm.Test.App.worker().ports;
 setInterval(id => id, 86400);
 
 ports.node.subscribe(exitCode => {
-	// logger.info('exit code from Elm:', exitCode);
-	console.log('exit code from Elm:', exitCode);
+	console.log('Exit code from Elm:', exitCode);
 	process.exit(exitCode);
 });
 
 process.on('uncaughtException', err => {
-	// logger.error({err: err}, `Uncaught exception:`);
-	console.log(`Uncaught exception:`, {err: err});
+	console.log(`Uncaught exception:\n`, err);
 	process.exit(1);
 });
 
-process.on('SIGINT', () => {
-	// logger.info(`SIGINT received.`);
+process.on('SIGINT', _ => {
 	console.log(`SIGINT received.`);
 	process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-	// logger.info(`SIGTERM received.`);
+process.on('SIGTERM', _ => {
 	console.log(`SIGTERM received.`);
 	process.exit(0);
 });
