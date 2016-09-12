@@ -7,12 +7,12 @@
         ".",
         "Libs/",
         "Test/",
-        "Libs/Postgres/",
-        "Libs/DebugF/"
+        "Libs/Postgres/"
     ],
     "exposed-modules": [],
     "native-modules": true,
     "dependencies": {
+		"panosoft/elm-debugf": "1.0.0 <= v < 2.0.0",
         "elm-community/json-extra": "1.0.0 <= v < 2.0.0",
         "elm-community/list-extra": "3.1.0 <= v < 4.0.0",
         "elm-community/maybe-extra": "1.1.0 <= v < 2.0.0",
