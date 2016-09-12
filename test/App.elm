@@ -7,6 +7,7 @@ import Dict exposing (Dict)
 import Html exposing (..)
 import Html.App
 import Maybe.Extra as MaybeE exposing (isNothing)
+import Result.Extra as ResultE exposing (isErr)
 import PersonEntity exposing (EntirePerson, defaultEntirePerson)
 import AddressEntity exposing (EntireAddress, defaultEntireAddress)
 import PersonSchema exposing (..)
@@ -14,7 +15,6 @@ import AddressSchema exposing (..)
 import Utils.Utils as Utils exposing (..)
 import Slate.Utils exposing (..)
 import Slate.Query exposing (..)
-import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
 import Slate.Engine as Engine exposing (..)
 import Slate.Projection exposing (..)
@@ -114,10 +114,12 @@ initModel =
     }
 
 
+executeQuery : Maybe String -> Query Msg -> List String -> Result (List String) ( Engine.Model Msg, Cmd Msg, Int )
 executeQuery =
     Engine.executeQuery EngineError EventProcessingError EventProcessingComplete SlateEngine initModel.engineModel
 
 
+refreshQuery : Engine.Model Msg -> Int -> ( Engine.Model Msg, Cmd Msg )
 refreshQuery =
     Engine.refreshQuery SlateEngine
 
@@ -355,6 +357,7 @@ projectPersonQuery wrappedModel =
             Err allErrors
 
 
+okAddressesOnly : Dict comparable (Result x Address) -> Dict comparable Address
 okAddressesOnly =
     okOnly defaultAddress
 
@@ -376,6 +379,7 @@ toAddress entireAddress =
         }
 
 
+okPersonsOnly : Dict comparable (Result x Person) -> Dict comparable Person
 okPersonsOnly =
     okOnly defaultPerson
 
@@ -424,6 +428,7 @@ personQuery =
         [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]
 
 
+emptyEventData : EventData
 emptyEventData =
     { entityId = ""
     , value = Nothing
@@ -434,6 +439,7 @@ emptyEventData =
     }
 
 
+testUpdate : Model
 testUpdate =
     let
         eventRecord =

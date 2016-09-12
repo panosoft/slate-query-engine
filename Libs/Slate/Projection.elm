@@ -1,5 +1,6 @@
 module Slate.Projection exposing (..)
 
+import Result.Extra as ResultE exposing (isOk)
 import Dict exposing (Dict)
 import Utils.Utils exposing (..)
 
@@ -18,11 +19,11 @@ okOnly default dictResult =
         |> projectMap (flip (///) (\_ -> default))
 
 
-projectionErrors : Dict comparable (Result a b) -> List a
+projectionErrors : Dict comparable (Result (List x) b) -> List (List x)
 projectionErrors =
     filterErr << Dict.values
 
 
-allProjectionErrors : List (List (List a)) -> List a
+allProjectionErrors : List (List (List x)) -> List x
 allProjectionErrors =
     List.concat << (List.map List.concat)

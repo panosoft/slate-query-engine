@@ -11,6 +11,16 @@ module Utils.Utils exposing (..)
             f err
 
 
+getErr : Result a x -> a -> a
+getErr result default =
+    case result of
+        Ok _ ->
+            default
+
+        Err err ->
+            err
+
+
 fstMap : (a -> b) -> List ( a, c ) -> List ( b, c )
 fstMap f =
     List.map (\( x, y ) -> ( f x, y ))
@@ -39,31 +49,6 @@ filterJust accessor replacer list =
 
         [] ->
             []
-
-
-isOk : Result error x -> Bool
-isOk result =
-    case result of
-        Ok _ ->
-            True
-
-        Err _ ->
-            False
-
-
-isErr : Result error x -> Bool
-isErr =
-    not << isOk
-
-
-getErr : Result a x -> a -> a
-getErr result default =
-    case result of
-        Ok _ ->
-            default
-
-        Err err ->
-            err
 
 
 filterErr : List (Result error x) -> List error
