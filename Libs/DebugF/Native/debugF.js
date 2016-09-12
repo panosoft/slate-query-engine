@@ -72,12 +72,12 @@ var _user$project$Native_DebugF = function() {
 
 			if (v instanceof String)
 			{
-				return '\'' + indentLines(v, 1) + '\'';
+				return '\'' + v + '\'';
 			}
 
 			if (type === 'string')
 			{
-				return '"' + indentLines(v, 1) + '"';
+				return '"' + v + '"';
 			}
 
 			if (v === null)
