@@ -285,7 +285,7 @@ startQuery model queryStateId connectionId =
                                 if ids == [] then
                                     "1=1"
                                 else
-                                    "entity_id IN (" ++ (String.join ", " <| quoteList ids) ++ ")"
+                                    "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")"
                         in
                             templateReplace [ ( entityType ++ "-entityIds", entityIdClause ) ]
 
