@@ -23,7 +23,7 @@ const E = {
 };
 // This module is in the same scope as Elm but all modules that are required are NOT
 // So we must pass elm globals to it
-const cmd = require('@panosoft/elm-native-helpers/cmd')(E);
+const helper = require('@panosoft/elm-native-helpers/helper')(E);
 const read = require('stream-read');
 const pg = require('pg');
 const QueryStream = require('pg-query-stream');
@@ -133,7 +133,7 @@ var _user$project$Native_Postgres = function() {
 				if (err)
 					cb(err.message);
 				else
-					cb(null, result.rowCount);
+					cb(null, result.rowCount || 0);
 			});
 		}
 		catch(err) {
@@ -159,15 +159,15 @@ var _user$project$Native_Postgres = function() {
 	};
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Cmds
-	const connect = cmd.cmdCall7_2(_connect);
-	const disconnect = cmd.cmdCall3_0(_disconnect, cmd.unwrap({1:'_0', 3:'_0'}));
-	const query = cmd.cmdCall4_2(_query, cmd.unwrap({1:'_0', 4:'_0'}));
-	const moreQueryResults = cmd.cmdCall3_2(_moreQueryResults, cmd.unwrap({1:'_0'}));
-	const executeSQL = cmd.cmdCall2_1(_executeSQL, cmd.unwrap({1:'_0'}));
+	const connect = helper.call7_2(_connect);
+	const disconnect = helper.call3_0(_disconnect, helper.unwrap({1:'_0', 3:'_0'}));
+	const query = helper.call4_2(_query, helper.unwrap({1:'_0', 4:'_0'}));
+	const moreQueryResults = helper.call3_2(_moreQueryResults, helper.unwrap({1:'_0'}));
+	const executeSQL = helper.call2_1(_executeSQL, helper.unwrap({1:'_0'}));
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Subs
-	const listen = cmd.cmdCall3_1(_listen, cmd.unwrap({1:'_0'}));
-	const unlisten = cmd.cmdCall3_0(_unlisten, cmd.unwrap({1:'_0'}));
+	const listen = helper.call3_1(_listen, helper.unwrap({1:'_0'}));
+	const unlisten = helper.call3_0(_unlisten, helper.unwrap({1:'_0'}));
 
 	return {
 		///////////////////////////////////////////

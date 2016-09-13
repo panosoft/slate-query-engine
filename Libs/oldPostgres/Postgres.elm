@@ -1,9 +1,14 @@
 effect module Postgres.Postgres where { command = MyCmd, subscription = MySub } exposing (..)
 
+{-| Postgres Effects Manager to access Postgres DBs
+
+    The native driver is https://github.com/brianc/node-postgres.
+-}
+
 import String exposing (..)
 import Task exposing (Task)
 import Dict exposing (Dict)
-import DebugF exposing (..)
+import DebugF exposing (toStringF)
 import Native.Postgres
 
 
@@ -175,26 +180,75 @@ connectionTimeout =
     15000
 
 
+{-| Connect to a database
+
+    Usage:
+        connect myHost 5432 myDb userName password ErrorConnect SuccessConnect ConnectionLost
+
+    where:
+        ErrorConnect, SuccessConnect and ConnectionLost are your application's messages to handle the different scenarios
+-}
 connect : String -> Int -> String -> String -> String -> ErrorTagger msg -> ConnectTagger msg -> ConnectionLostTagger msg -> Cmd msg
 connect host port' database user password errorTagger tagger connectionLostTagger =
     command (Connect host port' database user password errorTagger tagger connectionLostTagger)
 
 
+{-| Disconnect from database
+
+    Usage:
+        disconnect 123 False ErrorDisconnect SuccessDisconnect
+
+    where:
+        123 is the connection id from the (ConnectTagger msg) handler
+        False means to NOT discard the connection, i.e. return it into the pool
+        ErrorDisconnect and SuccessDisconnect are your application's messages to handle the different scenarios
+-}
 disconnect : Int -> Bool -> ErrorTagger msg -> DisconnectTagger msg -> Cmd msg
 disconnect connectionId discardConnection errorTagger tagger =
     command (Disconnect connectionId discardConnection errorTagger tagger)
 
 
+{-| Query the database
+
+    Usage:
+        query 123 "SELECT * FROM table" 1000 ErrorQuery SuccessQuery
+
+    where:
+        123 is the connection id from the (ConnectTagger msg) handler
+        "SELECT * FROM table" is the SQL Command that returns a SINGLE result set
+        1000 is the number of records or rows to return in this call and subsequent Postgres.moreQueryResults calls
+        ErrorQuery and SuccessQuery are your application's messages to handle the different scenarios
+-}
 query : Int -> String -> Int -> ErrorTagger msg -> QueryTagger msg -> Cmd msg
 query connectionId sql recordCount errorTagger tagger =
     command (Query connectionId sql recordCount errorTagger tagger)
 
 
+{-| Get more records from the database based on the last call to Postgres.query
+
+    Usage:
+        moreQueryResults 123 ErrorQuery SuccessQuery
+
+    where:
+        123 is the connection id from the (ConnectTagger msg) handler
+        ErrorQuery and SuccessQuery are your application's messages to handle the different scenarios:
+            when (snd SuccessQuery) == [] then there are no more records
+-}
 moreQueryResults : Int -> ErrorTagger msg -> QueryTagger msg -> Cmd msg
 moreQueryResults connectionId errorTagger tagger =
     command (MoreQueryResults connectionId errorTagger tagger)
 
 
+{-| Execute SQL command, e.g. INSERT, UPDATE, DELETE, etc.
+
+    Usage:
+        executeSQL 123 "DELETE FROM table" ErrorExecuteSQL SuccessExecuteSQL
+
+    where:
+        123 is the connection id from the (ConnectTagger msg) handler
+        "DELETE FROM table" is the SQL Command that returns a ROW COUNT
+        ErrorExecuteSQL and SuccessExecuteSQL are your application's messages to handle the different scenarios
+-}
 executeSQL : Int -> String -> ErrorTagger msg -> ExecuteTagger msg -> Cmd msg
 executeSQL connectionId sql errorTagger tagger =
     command (ExecuteSQL connectionId sql errorTagger tagger)
@@ -227,6 +281,17 @@ subMap f sub =
 -- subscriptions
 
 
+{-| Subscribe to Postgres NOTIFY messages (see https://www.postgresql.org/docs/current/static/sql-notify.html)
+
+    Usage:
+        listen 123 "myChannel" ErrorListenUnlisten SuccessListenUnlisten
+
+    where:
+        123 is the connection id from the (ConnectTagger msg) handler
+        "myChannel" is the name of the Channel that will publish a STRING payload
+        ErrorListenUnlisten and SuccessListenUnlisten are your application's messages to handle the different scenarios
+            Messages are sent to the application upon subscribe and unsubscribe (Listen and Unlisten)
+-}
 listen : Int -> String -> ErrorTagger msg -> ListenTagger msg -> ListenEventTagger msg -> Sub msg
 listen connectionId channel errorTagger listenTagger eventTagger =
     subscription (Listen connectionId channel errorTagger listenTagger eventTagger)

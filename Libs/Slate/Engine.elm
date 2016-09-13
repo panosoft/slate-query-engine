@@ -14,7 +14,7 @@ import DebugF exposing (..)
 import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
 import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
 import Utils.Utils exposing (..)
-import Postgres.Postgres as Postgres exposing (..)
+import Postgres exposing (..)
 
 
 {-| - TODO change this !!!!!!!!!!!!!!!!!!!!!!!!!!!!!

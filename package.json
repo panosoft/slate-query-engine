@@ -2,13 +2,15 @@
   "version": "0.1.0",
   "description": "Prototype Elm version of slate",
   "scripts": {
-	"run": "elm make Test/App.elm --output test.js && node run.js",
+    "run": "elm make Test/App.elm --output test.js && node run.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "Unlicense",
   "dependencies": {
     "@panosoft/elm-native-helpers": "^0.1.2",
-    "pg": "^6.1.0"
+    "pg": "^6.1.0",
+    "pg-query-stream": "^1.0.0",
+    "stream-read": "^1.1.2"
   }
 }

@@ -19,7 +19,7 @@ import Slate.Event exposing (..)
 import Slate.Engine as Engine exposing (..)
 import Slate.Projection exposing (..)
 import Date exposing (Date)
-import Postgres.Postgres as Postgres exposing (..)
+import Postgres exposing (..)
 
 
 port node : Float -> Cmd msg
