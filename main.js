@@ -1,8 +1,8 @@
 // compile Test.App.elm with:
-//		elm make Test/App.elm --output test.js
+//		elm make Test/App.elm --output elm.js
 
 // load Elm module
-const elm = require('./test.js');
+const elm = require('./elm.js');
 
 // get Elm ports
 const ports = elm.Test.App.worker().ports;

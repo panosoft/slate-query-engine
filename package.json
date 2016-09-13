@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "description": "Prototype Elm version of slate",
   "scripts": {
-    "run": "elm make Test/App.elm --output main.js && node main.js",
+    "run": "elm make Test/App.elm --output elm.js && node main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
