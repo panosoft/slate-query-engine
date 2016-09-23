@@ -504,8 +504,8 @@ exportQueryState model queryStateId =
         Maybe.map (\queryState -> queryStateEncode queryState) maybeQueryState // ""
 
 
-queryStateDecode : Model msg -> ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
-queryStateDecode model errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
+queryStateDecode : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
+queryStateDecode errorMsg eventProcessingErrorMsg completionMsg tagger messageDict json =
     JD.decodeString
         ((JD.succeed QueryState)
             <|| ("first" := JD.bool)
@@ -541,4 +541,4 @@ importQueryState errorMsg eventProcessingErrorMsg completionMsg tagger query mod
                 in
                     { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
             )
-            (queryStateDecode model errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)
+            (queryStateDecode errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)
