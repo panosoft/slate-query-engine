@@ -21,7 +21,7 @@ import Postgres exposing (..)
 -}
 queryBatchSize : Int
 queryBatchSize =
-    10
+    2
 
 
 type alias ErrorMsg msg =

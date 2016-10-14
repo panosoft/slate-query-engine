@@ -20,6 +20,7 @@ import Slate.Engine as Engine exposing (..)
 import Slate.Projection exposing (..)
 import Date exposing (Date)
 import Postgres exposing (..)
+import DebugF exposing (..)
 
 
 port node : Float -> Cmd msg
@@ -197,6 +198,9 @@ update msg model =
         --     ( model, node 1 )
         SlateEngine engineMsg ->
             let
+                l =
+                    DebugF.log "engineMsg" engineMsg
+
                 ( ( engineModel, engineCmd ), appMsgs ) =
                     Engine.update engineMsg model.engineModel
 
@@ -213,7 +217,6 @@ update msg model =
                 myCmd =
                     myCmds
                         |> List.filter ((/=) Cmd.none)
-                        |> List.reverse
                         |> Cmd.batch
             in
                 newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
