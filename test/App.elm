@@ -137,7 +137,7 @@ init =
             Ok ( engineModel, cmd, queryId ) ->
                 { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries }
                     ! [ cmd
-                      , Postgres.connect connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password ConnectError Connect ConnectionLost
+                      , Postgres.connect ConnectError Connect ConnectionLost connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password
                       ]
 
             Err err ->
@@ -505,7 +505,7 @@ subscriptions model =
         channel =
             "eventsinsert"
     in
-        Maybe.map (\connectionId -> Postgres.listen (model.listenConnectionId // 1) channel (ListenUnlistenError channel) ListenUnlisten ListenEvent) model.listenConnectionId
+        Maybe.map (\connectionId -> Postgres.listen (ListenUnlistenError channel) ListenUnlisten ListenEvent (model.listenConnectionId // 1) channel) model.listenConnectionId
             // Sub.none
 
 

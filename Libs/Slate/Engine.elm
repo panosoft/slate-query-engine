@@ -188,7 +188,7 @@ update msg model =
 
                 ( finalMsgs, finalCmd ) =
                     if endOfQuery then
-                        ( List.append msgs [ queryState.completionMsg queryStateId ], Postgres.disconnect connectionId False (DisconnectError queryStateId) (Disconnect queryStateId) )
+                        ( List.append msgs [ queryState.completionMsg queryStateId ], Postgres.disconnect (DisconnectError queryStateId) (Disconnect queryStateId) connectionId False )
                     else
                         ( msgs, cmd )
             in
@@ -299,7 +299,7 @@ startQuery model queryStateId connectionId =
                         DebugF.log "sql" sql
                 in
                     ( updateQueryState model { queryState | currentTemplate = queryState.currentTemplate + 1 }
-                    , Postgres.query connectionId sql queryBatchSize (QueryError queryStateId) (Events queryStateId)
+                    , Postgres.query (QueryError queryStateId) (Events queryStateId) connectionId sql queryBatchSize
                     )
             )
             maybeTemplate
@@ -400,12 +400,12 @@ processEvents model queryStateId eventStrs =
 
 nextQuery : Int -> Int -> Cmd Msg
 nextQuery queryStateId connectionId =
-    Postgres.moreQueryResults connectionId (QueryError queryStateId) (Events queryStateId)
+    Postgres.moreQueryResults (QueryError queryStateId) (Events queryStateId) connectionId
 
 
 connectToDb : Model msg -> Int -> (Msg -> msg) -> Cmd msg
 connectToDb model queryStateId tagger =
-    Postgres.connect model.host model.port' model.database model.user model.password (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId))
+    Postgres.connect (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId)) model.host model.port' model.database model.user model.password
 
 
 
