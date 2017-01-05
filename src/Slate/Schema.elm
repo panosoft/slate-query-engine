@@ -2,7 +2,7 @@ module Slate.Schema exposing (..)
 
 
 type alias EntitySchema =
-    { type' : String
+    { type_ : String
     , eventNames : List String
     , properties : List PropertySchema
     }
@@ -19,6 +19,14 @@ type alias PropertySchema =
     , entitySchema : Maybe EntitySchemaReference
     , eventNames : List String
     , owned : Bool
+    }
+
+
+nullSchema : EntitySchema
+nullSchema =
+    { type_ = ""
+    , eventNames = []
+    , properties = []
     }
 
 

@@ -5,7 +5,7 @@ import Slate.Schema exposing (..)
 
 addressSchema : EntitySchema
 addressSchema =
-    { type' = "Address"
+    { type_ = "Address"
     , eventNames =
         [ "Address created"
         , "Address destroyed"

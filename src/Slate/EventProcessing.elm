@@ -46,13 +46,13 @@ getDateValue event =
 
 
 checkExists : String -> Event -> Maybe value -> Result String value
-checkExists type' event value =
+checkExists type_ event value =
     case value of
         Just v ->
             Ok v
 
         Nothing ->
-            Err <| "Event data " ++ type' ++ " is missing " ++ (toString event)
+            Err <| "Event data " ++ type_ ++ " is missing " ++ (toString event)
 
 
 checkValueExists : Event -> Maybe value -> Result String value

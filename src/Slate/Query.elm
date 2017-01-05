@@ -5,7 +5,8 @@ import Dict exposing (..)
 import Set exposing (..)
 import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
-import Regex.Extra as RegexE exposing (..)
+import Utils.Regex as RegexU
+import Maybe.Extra as MaybeE exposing (isNothing)
 import Utils.Utils exposing (..)
 import Slate.Schema exposing (..)
 import Slate.Event exposing (EventRecord)
@@ -30,7 +31,7 @@ type Query msg
 
 emptySchema : EntitySchema
 emptySchema =
-    { type' = ""
+    { type_ = ""
     , eventNames = []
     , properties = []
     }
@@ -135,7 +136,7 @@ propertiesCheck nodeQuery =
             diff =
                 Set.toList <| Set.diff queryProperties schemaProperties
         in
-            List.map (flip (++) <| " is not a valid property for " ++ nodeQuery.schema.type') diff
+            List.map (flip (++) <| " is not a valid property for " ++ nodeQuery.schema.type_) diff
     else
         [ "Missing Schema in query node: " ++ (toString nodeQuery) ]
 
@@ -147,7 +148,7 @@ validQuery query =
             List.concat <| toFlatListMap propertiesCheck query
 
         entityNames =
-            toFlatListMap (.schema >> .type') query
+            toFlatListMap (.schema >> .type_) query
     in
         if (Set.size <| Set.fromList entityNames) /= List.length entityNames then
             [ "Query must NOT be cyclic" ]
@@ -159,10 +160,10 @@ extractQueryEntityName : Query msg -> String
 extractQueryEntityName query =
     case query of
         Node nodeQuery children ->
-            nodeQuery.schema.type'
+            nodeQuery.schema.type_
 
         Leaf nodeQuery ->
-            nodeQuery.schema.type'
+            nodeQuery.schema.type_
 
 
 extractNodeQuery : Query msg -> NodeQuery msg
@@ -177,7 +178,7 @@ extractNodeQuery query =
 
 childEntityNames : NodeQuery msg -> List (Query msg) -> ( String, List (NodeQuery msg) )
 childEntityNames nodeQuery children =
-    ( nodeQuery.schema.type', List.map extractNodeQuery children )
+    ( nodeQuery.schema.type_, List.map extractNodeQuery children )
 
 
 parentChild : Query msg -> Dict String (List (NodeQuery msg))
@@ -223,7 +224,7 @@ sqlTemplate : String
 sqlTemplate =
     """
 SELECT id, ts, (extract(epoch from ts)*100000)::numeric AS trans_id, event{{maxIdColumn}}
-FROM events
+FROM eventsx
 {{maxIdSQLClause}}
 WHERE ({entityTemplates})
     AND {{additionalCriteria}}
@@ -248,7 +249,7 @@ entityTemplate : String
 entityTemplate =
     """
     ({entityIds}
-        AND event->>'name' IN ({eventNames})
+        AND event#>>'{name}' IN ({eventNames})
         AND {entityCriteria}
         AND id > {{lastMaxId}})
 """
@@ -260,7 +261,7 @@ parametricReplace prefix suffix replacements template =
         buildRegex param =
             Regex.escape <| prefix ++ param ++ suffix
     in
-        List.foldl (\( param, value ) template -> RegexE.replace All (buildRegex param) (RegexE.simpleReplacer value) template) template replacements
+        List.foldl (\( param, value ) template -> RegexU.replace All (buildRegex param) (RegexU.simpleReplacer value) template) template replacements
 
 
 propertySchemaEventNames : NodeQuery msg -> List ( EntitySchema, List String )
@@ -269,9 +270,10 @@ propertySchemaEventNames nodeQuery =
         unwrap ( SchemaReference schema, eventNames ) =
             ( schema, eventNames )
     in
-        List.map unwrap <|
-            filterJust fst (\( s, ns ) us -> ( us, ns )) <|
-                List.map (\p -> ( p.entitySchema, p.eventNames )) nodeQuery.schema.properties
+        List.map (\p -> ( p.entitySchema, p.eventNames )) nodeQuery.schema.properties
+            |> List.filter (fst >> isNothing >> not)
+            |> List.map (\( mes, ens ) -> ( mes |?> identity ?= SchemaReference nullSchema, ens ))
+            |> List.map unwrap
 
 
 getEventNames : NodeQuery msg -> List (NodeQuery msg) -> List String
@@ -316,7 +318,7 @@ buildMessageDict query =
         propertyEntityType schemaRef =
             case schemaRef of
                 SchemaReference schema ->
-                    schema.type'
+                    schema.type_
 
         eventNames : EntitySchema -> List ( Maybe String, String )
         eventNames schema =
@@ -344,7 +346,7 @@ buildEntityTemplate : Dict String (List (NodeQuery msg)) -> NodeQuery msg -> Str
 buildEntityTemplate parentChild parent =
     let
         children =
-            (Dict.get parent.schema.type' parentChild // [])
+            (Dict.get parent.schema.type_ parentChild // [])
 
         names =
             getEventNames parent children
@@ -358,7 +360,7 @@ buildEntityTemplate parentChild parent =
         templateReplace
             [ ( "eventNames", eventNames )
             , ( "entityCriteria", entityCriteria )
-            , ( "entityIds", "{{" ++ parent.schema.type' ++ "-entityIds}}" )
+            , ( "entityIds", "{{" ++ parent.schema.type_ ++ "-entityIds}}" )
             ]
             entityTemplate
 

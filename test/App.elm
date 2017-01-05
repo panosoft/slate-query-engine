@@ -7,7 +7,6 @@ import Dict exposing (Dict)
 import Html exposing (..)
 import Html.App
 import Maybe.Extra as MaybeE exposing (isNothing)
-import Result.Extra as ResultE exposing (isErr)
 import PersonEntity exposing (EntirePerson, defaultEntirePerson)
 import AddressEntity exposing (EntireAddress, defaultEntireAddress)
 import PersonSchema exposing (..)
@@ -58,11 +57,6 @@ type alias Entities =
     }
 
 
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
-
-
 type Msg
     = Nop
       -- | Tick Float
@@ -79,13 +73,13 @@ type Msg
     | Connect Int
     | ConnectionLost ( Int, String )
     | ListenUnlistenError String ( Int, String )
-    | ListenUnlisten ( Int, String, String )
+    | ListenUnlisten ( Int, String, ListenUnlisten )
     | ListenEvent ( Int, String, String )
 
 
 type alias ConnectionInfo =
     { host : String
-    , port' : Int
+    , port_ : Int
     , database : String
     , user : String
     , password : String
@@ -95,7 +89,7 @@ type alias ConnectionInfo =
 connectionInfo : ConnectionInfo
 connectionInfo =
     { host = "postgresDBServer"
-    , port' = 5432
+    , port_ = 5432
     , database = "test"
     , user = "charles"
     , password = "testpassword"
@@ -108,7 +102,7 @@ initModel =
     , entireAddresses = Dict.empty
     , persons = Dict.empty
     , addresses = Dict.empty
-    , engineModel = Engine.initModel connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password
+    , engineModel = Engine.initModel connectionInfo.host connectionInfo.port_ connectionInfo.database connectionInfo.user connectionInfo.password
     , queries = Dict.empty
     , didRefresh = False
     , listenConnectionId = Nothing
@@ -137,7 +131,7 @@ init =
             Ok ( engineModel, cmd, queryId ) ->
                 { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries }
                     ! [ cmd
-                      , Postgres.connect ConnectError Connect ConnectionLost connectionInfo.host connectionInfo.port' connectionInfo.database connectionInfo.user connectionInfo.password
+                      , Postgres.connect ConnectError Connect ConnectionLost 15000 connectionInfo.host connectionInfo.port_ connectionInfo.database connectionInfo.user connectionInfo.password
                       ]
 
             Err err ->
@@ -150,7 +144,6 @@ init =
 
 main : Program Never
 main =
-    -- N.B. the dummy init which returns an empty Model and no Cmd
     -- N.B. the dummy view returns an empty HTML text node
     --      this is just to make the compiler happy since the worker() call Javascript doesn't use a render
     Html.App.program
@@ -162,8 +155,8 @@ main =
 
 
 mutationError : String -> Model -> (String -> ( Model, Cmd Msg ))
-mutationError type' model =
-    (\err -> update (MutationError type' err) model)
+mutationError type_ model =
+    (\err -> update (MutationError type_ err) model)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -222,14 +215,14 @@ update msg model =
                 newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
 
         MutatePerson eventRecord ->
-            Result.map (\newDict -> { model | entirePersons = newDict } ! [])
-                (PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event)
-                /// mutationError "Person" model
+            PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
+                |??> (\newDict -> { model | entirePersons = newDict } ! [])
+                ??= mutationError "Person" model
 
         MutateAddress eventRecord ->
-            Result.map (\newDict -> { model | entireAddresses = newDict } ! [])
-                (AddressEntity.handleMutation model.entireAddresses eventRecord.event)
-                /// mutationError "Address" model
+            AddressEntity.handleMutation model.entireAddresses eventRecord.event
+                |??> (\newDict -> { model | entireAddresses = newDict } ! [])
+                ??= mutationError "Address" model
 
         EngineError ( queryId, err ) ->
             let
@@ -248,18 +241,15 @@ update msg model =
 
                 projectionResult : Result (List String) WrappedModel
                 projectionResult =
-                    (Maybe.map (\projection -> projection <| WrappedModel model) <| Dict.get queryId model.queries) // (Err [ unknownQueryId ])
+                    Dict.get queryId model.queries
+                        |?> (\projection -> projection <| WrappedModel model)
+                        ?= (Err [ unknownQueryId ])
 
                 crash =
-                    if isErr projectionResult then
-                        getErr projectionResult [ unknownQueryId ]
-                            |> String.join "\n"
-                            |> Debug.crash
-                    else
-                        ""
+                    projectionResult |??> identity ??= (Debug.crash << String.join "\n")
 
                 newModel =
-                    ((Result.map (\wrappedModel -> unwrapModel wrappedModel) projectionResult) /// (\_ -> model))
+                    projectionResult |??> (\wrappedModel -> unwrapModel wrappedModel) ??= (\_ -> model)
 
                 ( newEngineModel, cmd ) =
                     if newModel.didRefresh == False then
@@ -269,11 +259,11 @@ update msg model =
                         --     json =
                         --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
                         --
-                        --     import' =
+                        --     import_ =
                         --         Engine.importQueryState EngineError EventProcessingError EventProcessingComplete SlateEngine
                         --
                         --     result =
-                        --         Debug.log "import" <| import' personQuery newModel.engineModel json
+                        --         Debug.log "import" <| import_ personQuery newModel.engineModel json
                         -- in
                         ( newModel.engineModel, Cmd.none )
             in
@@ -314,10 +304,10 @@ update msg model =
             in
                 model ! []
 
-        ListenUnlisten ( connectionId, channel, type' ) ->
+        ListenUnlisten ( connectionId, channel, type_ ) ->
             let
                 l =
-                    Debug.log "ListenUnlisten" ( connectionId, channel, type' )
+                    Debug.log "ListenUnlisten" ( connectionId, channel, type_ )
             in
                 model ! []
 
@@ -378,7 +368,7 @@ toAddress entireAddress =
     getValidEntity
         [ ( isNothing entireAddress.street, "street is missing" )
         ]
-        { street = entireAddress.street // defaultAddress.street
+        { street = entireAddress.street ?= defaultAddress.street
         }
 
 
@@ -403,21 +393,21 @@ toPerson addresses entirePerson =
             entirePerson.address
 
         address =
-            MaybeE.join <| Maybe.map (\ref -> Dict.get ref addresses) addressRef
+            MaybeE.join <| addressRef |?> (\ref -> Dict.get ref addresses)
 
         getPerson : Address -> Result (List String) Person
         getPerson address =
             getValidEntity
                 [ ( isNothing entirePerson.name, "name is missing" )
                 ]
-                { name = entirePerson.name // defaultPerson.name
+                { name = entirePerson.name ?= defaultPerson.name
                 , address = address
                 }
     in
         if isNothing address && (not <| isNothing addressRef) then
-            Err [ "Cannot find address id: " ++ (addressRef // "BUG") ]
+            Err [ "Cannot find address id: " ++ (addressRef ?= "BUG") ]
         else
-            getPerson <| address // defaultAddress
+            getPerson <| address ?= defaultAddress
 
 
 query : NodeQuery Msg
@@ -505,8 +495,9 @@ subscriptions model =
         channel =
             "eventsinsert"
     in
-        Maybe.map (\connectionId -> Postgres.listen (ListenUnlistenError channel) ListenUnlisten ListenEvent (model.listenConnectionId // 1) channel) model.listenConnectionId
-            // Sub.none
+        model.listenConnectionId
+            |?> (\connectionId -> Postgres.listen (ListenUnlistenError channel) ListenUnlisten ListenEvent (model.listenConnectionId ?= 1) channel)
+            ?= Sub.none
 
 
 

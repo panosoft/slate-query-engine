@@ -1,7 +1,6 @@
-module Regex.Extra exposing (..)
+module Regex.Helper exposing (..)
 
 import String exposing (..)
-import List as L
 import Regex exposing (Regex, Match, regex, HowMany(All, AtMost))
 
 
@@ -35,12 +34,12 @@ parametricReplacer new =
             Regex.replace All (regex <| paramRegex index) (\m -> replaceParam m.match subMatch) new
 
         replaceSubmatchesInNew =
-            L.foldl
+            List.foldl
                 (\subMatch state -> { state | new = replace state.index subMatch state.new, index = state.index + 1 })
                 { new = new, index = 1 }
 
         asStrings =
-            L.map (Maybe.withDefault "")
+            List.map (Maybe.withDefault "")
     in
         \m -> .new <| replaceSubmatchesInNew <| asStrings m.submatches
 

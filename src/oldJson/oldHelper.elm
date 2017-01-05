@@ -6,14 +6,9 @@ import Json.Encode as JE exposing (..)
 import Utils.Utils exposing (..)
 
 
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
-
-
-(////) : JD.Decoder a -> a -> JD.Decoder a
-(////) decoder default =
-    (maybe decoder) `JD.andThen` (\maybe -> JD.succeed (maybe // default))
+(///) : JD.Decoder a -> a -> JD.Decoder a
+(///) decoder default =
+    (maybe decoder) `JD.andThen` (\maybe -> JD.succeed (maybe ?= default))
 
 
 (<||) : JD.Decoder (a -> b) -> JD.Decoder a -> JD.Decoder b
@@ -23,7 +18,7 @@ import Utils.Utils exposing (..)
 
 encMaybe : (a -> JE.Value) -> Maybe a -> JE.Value
 encMaybe encoder maybe =
-    (Maybe.map (\just -> encoder just) maybe) // JE.null
+    maybe |?> (\just -> encoder just) ?= JE.null
 
 
 encDict : (comparable -> JE.Value) -> (value -> JE.Value) -> Dict comparable value -> JE.Value
@@ -38,7 +33,7 @@ decConvertDict : (a -> value) -> Decoder comparable -> Decoder a -> Decoder (Dic
 decConvertDict valuesConverter keyDecoder valueDecoder =
     let
         makeDict keys values =
-            Dict.fromList <| sndMap valuesConverter <| List.map2 (,) keys values
+            Dict.fromList <| secondMap valuesConverter <| List.map2 (,) keys values
     in
         JD.object2 makeDict ("keys" := JD.list keyDecoder) ("values" := JD.list valueDecoder)
 

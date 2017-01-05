@@ -3,11 +3,12 @@ module PersonEntity exposing (..)
 import Dict exposing (..)
 import Json.Encode as JE exposing (..)
 import Json.Decode as JD exposing (..)
-import Json.Helper as Json exposing (..)
+import Utils.Json as JsonH exposing ((///), (<||))
 import Slate.Event exposing (Event)
 import Slate.Reference exposing (..)
 import Slate.EventProcessing exposing (..)
 import AddressEntity exposing (..)
+import Utils.Utils exposing (..)
 
 
 -- Entity
@@ -18,11 +19,6 @@ type alias EntirePerson =
     , age : Maybe Int
     , address : Maybe EntityReference
     }
-
-
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
 
 
 {-| Starting point for all subSets of Person
@@ -95,9 +91,9 @@ entirePersonEncode : EntirePerson -> String
 entirePersonEncode person =
     JE.encode 0 <|
         JE.object
-            [ ( "name", Json.encMaybe nameEncode person.name )
-            , ( "age", Json.encMaybe JE.int person.age )
-            , ( "address", Json.encMaybe Slate.Reference.entityReferenceEncode person.address )
+            [ ( "name", JsonH.encMaybe nameEncode person.name )
+            , ( "age", JsonH.encMaybe JE.int person.age )
+            , ( "address", JsonH.encMaybe Slate.Reference.entityReferenceEncode person.address )
             ]
 
 
@@ -114,11 +110,8 @@ entirePersonDecode json =
 
 handleMutation : Dict String EntirePerson -> Dict String EntireAddress -> Event -> Result String (Dict String EntirePerson)
 handleMutation dict addresses event =
-    Result.map
-        (\maybePerson ->
-            Maybe.map (\person -> Dict.insert event.data.entityId person dict) maybePerson // Dict.remove event.data.entityId dict
-        )
-        (mutate event (lookupEntity dict event entirePersonShell) addresses)
+    mutate event (lookupEntity dict event entirePersonShell) addresses
+        |??> (\maybePerson -> maybePerson |?> (\person -> Dict.insert event.data.entityId person dict) ?= Dict.remove event.data.entityId dict)
 
 
 {-| Mutate the Person based on an event

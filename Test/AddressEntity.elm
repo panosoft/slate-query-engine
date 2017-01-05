@@ -3,10 +3,11 @@ module AddressEntity exposing (..)
 import Dict exposing (..)
 import Json.Encode as JE exposing (..)
 import Json.Decode as JD exposing (..)
-import Json.Helper as Json exposing (..)
+import Utils.Json as JsonH exposing ((///), (<||))
 import Slate.Event exposing (Event)
 import Slate.EventProcessing exposing (..)
 import Slate.Reference exposing (..)
+import Utils.Utils exposing (..)
 
 
 type alias EntireAddress =
@@ -15,11 +16,6 @@ type alias EntireAddress =
     , state : Maybe String
     , zip : Maybe String
     }
-
-
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
 
 
 {-| Starting point for all subSets of Addresses
@@ -59,10 +55,10 @@ entireAddressEncode : EntireAddress -> String
 entireAddressEncode address =
     JE.encode 0 <|
         JE.object
-            [ ( "street", Json.encMaybe JE.string address.street )
-            , ( "city", Json.encMaybe JE.string address.city )
-            , ( "state", Json.encMaybe JE.string address.state )
-            , ( "zip", Json.encMaybe JE.string address.zip )
+            [ ( "street", JsonH.encMaybe JE.string address.street )
+            , ( "city", JsonH.encMaybe JE.string address.city )
+            , ( "state", JsonH.encMaybe JE.string address.state )
+            , ( "zip", JsonH.encMaybe JE.string address.zip )
             ]
 
 
@@ -80,11 +76,11 @@ entireAddressDecode json =
 
 handleMutation : Dict String EntireAddress -> Event -> Result String (Dict String EntireAddress)
 handleMutation dict event =
-    Result.map
-        (\maybeAddress ->
-            Maybe.map (\address -> Dict.insert event.data.entityId address dict) maybeAddress // Dict.remove event.data.entityId dict
-        )
-        (mutate event (lookupEntity dict event entireAddressShell))
+    (mutate event (lookupEntity dict event entireAddressShell))
+        |??>
+            (\maybeAddress ->
+                maybeAddress |?> (\address -> Dict.insert event.data.entityId address dict) ?= Dict.remove event.data.entityId dict
+            )
 
 
 {-| Mutate the Address based on an event

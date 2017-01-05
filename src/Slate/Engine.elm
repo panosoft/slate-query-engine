@@ -5,11 +5,11 @@ import Dict exposing (..)
 import Set exposing (..)
 import Json.Decode as JD exposing (..)
 import Json.Encode as JE exposing (..)
-import Json.Helper as Json exposing (..)
+import Utils.Json as JsonH exposing ((///), (<||))
 import List.Extra as ListE exposing (..)
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Regex exposing (HowMany(All, AtMost))
-import Regex.Extra as RegexE exposing (..)
+import Utils.Regex as RegexU
 import DebugF exposing (..)
 import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
 import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
@@ -18,6 +18,12 @@ import Postgres exposing (..)
 
 
 {-| - TODO change this !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 -}
 queryBatchSize : Int
 queryBatchSize =
@@ -60,11 +66,6 @@ type alias Model msg =
     , user : String
     , password : String
     }
-
-
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
 
 
 initModel : String -> Int -> String -> String -> String -> Model msg
@@ -260,51 +261,49 @@ startQuery model queryStateId connectionId =
                 (if queryState.first then
                     -1
                  else
-                    (ListE.foldl1 max <| Dict.values queryState.maxIds) // -1
+                    (ListE.foldl1 max <| Dict.values queryState.maxIds) ?= -1
                 )
 
         updateQueryState model queryState =
             { model | queryStates = Dict.insert queryStateId queryState model.queryStates }
     in
-        (Maybe.map
-            (\template ->
-                let
-                    sqlTemplate =
-                        templateReplace
-                            [ ( "additionalCriteria", queryState.additionalCriteria // "1=1" )
-                            , ( "firstTemplateWithDataMaxCriteria", firstTemplateWithDataMaxCriteria )
-                            , ( "maxIdColumn", maxIdColumn )
-                            , ( "maxIdSQLClause", maxIdSQLClause )
-                            , ( "lastMaxId", lastMaxId )
-                            ]
-                            template
+        maybeTemplate
+            |?> (\template ->
+                    let
+                        sqlTemplate =
+                            templateReplace
+                                [ ( "additionalCriteria", queryState.additionalCriteria ?= "1=1" )
+                                , ( "firstTemplateWithDataMaxCriteria", firstTemplateWithDataMaxCriteria )
+                                , ( "maxIdColumn", maxIdColumn )
+                                , ( "maxIdSQLClause", maxIdSQLClause )
+                                , ( "lastMaxId", lastMaxId )
+                                ]
+                                template
 
-                    replace entityType ids =
-                        let
-                            entityIdClause =
-                                if ids == [] then
-                                    "1=1"
-                                else
-                                    "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")"
-                        in
-                            templateReplace [ ( entityType ++ "-entityIds", entityIdClause ) ]
+                        replace entityType ids =
+                            let
+                                entityIdClause =
+                                    if ids == [] then
+                                        "1=1"
+                                    else
+                                        "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")"
+                            in
+                                templateReplace [ ( entityType ++ "-entityIds", entityIdClause ) ]
 
-                    sqlWithEntityIds =
-                        List.foldl (\( type', ids ) template -> replace type' ids template) sqlTemplate (sndMap Set.toList <| Dict.toList entityIds)
+                        sqlWithEntityIds =
+                            List.foldl (\( type_, ids ) template -> replace type_ ids template) sqlTemplate (secondMap Set.toList <| Dict.toList entityIds)
 
-                    sql =
-                        RegexE.replace All "\\{\\{.+?\\-entityIds\\}\\}" (RegexE.simpleReplacer "1!=1") sqlWithEntityIds
+                        sql =
+                            RegexU.replace All "\\{\\{.+?\\-entityIds\\}\\}" (RegexU.simpleReplacer "1??=1") sqlWithEntityIds
 
-                    ll =
-                        DebugF.log "sql" sql
-                in
-                    ( updateQueryState model { queryState | currentTemplate = queryState.currentTemplate + 1 }
-                    , Postgres.query (QueryError queryStateId) (Events queryStateId) connectionId sql queryBatchSize
-                    )
-            )
-            maybeTemplate
-        )
-            // ( updateQueryState model { queryState | first = False }, Cmd.none )
+                        ll =
+                            DebugF.log "sql" sql
+                    in
+                        ( updateQueryState model { queryState | currentTemplate = queryState.currentTemplate + 1 }
+                        , Postgres.query (QueryError queryStateId) (Events queryStateId) connectionId sql queryBatchSize
+                        )
+                )
+            ?= ( updateQueryState model { queryState | first = False }, Cmd.none )
 
 
 processEvents : Model msg -> Int -> List String -> ( Model msg, List msg )
@@ -329,68 +328,67 @@ processEvents model queryStateId eventStrs =
                         eventRecordDecoded =
                             decodeString eventRecordDecoder eventStr
                     in
-                        Result.map
-                            (\eventRecord ->
-                                let
-                                    event =
-                                        eventRecord.event
+                        eventRecordDecoded
+                            |??>
+                                (\eventRecord ->
+                                    let
+                                        event =
+                                            eventRecord.event
 
-                                    resultRecordId =
-                                        toInt eventRecord.id
-                                in
-                                    Result.map
-                                        (\recordId ->
-                                            let
-                                                maybeMsg =
-                                                    Dict.get event.name queryState.messageDict
-                                            in
-                                                Maybe.map
-                                                    (\{ msg, maybeEntityType } ->
-                                                        let
-                                                            entityType =
-                                                                maybeEntityType // ""
-
-                                                            currentEntityMaxId =
-                                                                (Dict.get entityType queryState.maxIds) // -1
-
-                                                            entityMaxId =
-                                                                max currentEntityMaxId recordId
-
-                                                            ids =
-                                                                Dict.get entityType queryState.ids // Set.empty
-
-                                                            firstTemplateWithDataMaxId =
-                                                                max queryState.firstTemplateWithDataMaxId ((Result.toMaybe <| toInt <| eventRecord.max // "-1") // -1)
-
-                                                            updateQueryState maybeIds entityMaxId =
-                                                                ( { queryState
-                                                                    | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId
-                                                                    , ids =
-                                                                        maybeIds // queryState.ids
-                                                                    , maxIds = Dict.insert entityType entityMaxId queryState.maxIds
-                                                                  }
-                                                                , (msg eventRecord) :: msgs
-                                                                )
-                                                        in
-                                                            {- add referenced entities to ids dictionary for next SQL query -}
-                                                            if not <| isNothing maybeEntityType then
-                                                                if isNothing event.data.referenceId then
-                                                                    eventError eventStr msgs <| missingReferenceValue eventRecord
-                                                                else
-                                                                    updateQueryState
-                                                                        (Just <| Dict.insert entityType (Set.insert (event.data.referenceId // "") ids) queryState.ids)
-                                                                        entityMaxId
-                                                            else
-                                                                updateQueryState Nothing entityMaxId
-                                                    )
-                                                    maybeMsg
-                                                    // eventError eventStr msgs eventNotInDict
-                                        )
+                                        resultRecordId =
+                                            toInt eventRecord.id
+                                    in
                                         resultRecordId
-                                        /// (\_ -> eventError eventStr msgs "Corrupt Event Record -- Invalid Id")
-                            )
-                            eventRecordDecoded
-                            /// (\decodingErr -> eventError eventStr msgs decodingErr)
+                                            |??>
+                                                (\recordId ->
+                                                    let
+                                                        maybeMsg =
+                                                            Dict.get event.name queryState.messageDict
+                                                    in
+                                                        maybeMsg
+                                                            |?> (\{ msg, maybeEntityType } ->
+                                                                    let
+                                                                        entityType =
+                                                                            maybeEntityType ?= ""
+
+                                                                        currentEntityMaxId =
+                                                                            (Dict.get entityType queryState.maxIds) ?= -1
+
+                                                                        entityMaxId =
+                                                                            max currentEntityMaxId recordId
+
+                                                                        ids =
+                                                                            Dict.get entityType queryState.ids ?= Set.empty
+
+                                                                        firstTemplateWithDataMaxId =
+                                                                            max queryState.firstTemplateWithDataMaxId ((Result.toMaybe <| toInt <| eventRecord.max ?= "-1") ?= -1)
+
+                                                                        updateQueryState maybeIds entityMaxId =
+                                                                            ( { queryState
+                                                                                | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId
+                                                                                , ids =
+                                                                                    maybeIds ?= queryState.ids
+                                                                                , maxIds = Dict.insert entityType entityMaxId queryState.maxIds
+                                                                              }
+                                                                            , (msg eventRecord) :: msgs
+                                                                            )
+                                                                    in
+                                                                        {- add referenced entities to ids dictionary for next SQL query -}
+                                                                        if not <| isNothing maybeEntityType then
+                                                                            if isNothing event.data.referenceId then
+                                                                                eventError eventStr msgs <| missingReferenceValue eventRecord
+                                                                            else
+                                                                                updateQueryState
+                                                                                    (Just <| Dict.insert entityType (Set.insert (event.data.referenceId ?= "") ids) queryState.ids)
+                                                                                    entityMaxId
+                                                                        else
+                                                                            updateQueryState Nothing entityMaxId
+                                                                )
+                                                            ?= eventError eventStr msgs eventNotInDict
+                                                )
+                                            ??= (\_ -> eventError eventStr msgs "Corrupt Event Record -- Invalid Id")
+                                )
+                            ??= (\decodingErr -> eventError eventStr msgs decodingErr)
                 )
                 ( queryState, [] )
                 eventStrs
@@ -405,7 +403,7 @@ nextQuery queryStateId connectionId =
 
 connectToDb : Model msg -> Int -> (Msg -> msg) -> Cmd msg
 connectToDb model queryStateId tagger =
-    Postgres.connect (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId)) model.host model.port' model.database model.user model.password
+    Postgres.connect (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId)) 15000 model.host model.port' model.database model.user model.password
 
 
 
@@ -418,44 +416,44 @@ executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additio
         templateResult =
             buildQueryTemplate query
     in
-        Result.map
-            (\templates ->
-                let
-                    queryStateId =
-                        model.nextId
+        templateResult
+            |??>
+                (\templates ->
+                    let
+                        queryStateId =
+                            model.nextId
 
-                    rootEntity =
-                        case query of
-                            Node nodeQuery _ ->
-                                nodeQuery.schema.type'
+                        rootEntity =
+                            case query of
+                                Node nodeQuery _ ->
+                                    nodeQuery.schema.type_
 
-                            Leaf nodeQuery ->
-                                nodeQuery.schema.type'
+                                Leaf nodeQuery ->
+                                    nodeQuery.schema.type_
 
-                    queryState =
-                        { rootEntity = rootEntity
-                        , badQueryState = False
-                        , currentTemplate = 0
-                        , templates = templates
-                        , rootIds = rootIds
-                        , ids = Dict.empty
-                        , additionalCriteria = additionalCriteria
-                        , maxIds = Dict.empty
-                        , firstTemplateWithDataMaxId = -1
-                        , errorMsg = errorMsg
-                        , eventProcessingErrorMsg = eventProcessingErrorMsg
-                        , completionMsg = completionMsg
-                        , tagger = tagger
-                        , messageDict = buildMessageDict query
-                        , first = True
-                        }
+                        queryState =
+                            { rootEntity = rootEntity
+                            , badQueryState = False
+                            , currentTemplate = 0
+                            , templates = templates
+                            , rootIds = rootIds
+                            , ids = Dict.empty
+                            , additionalCriteria = additionalCriteria
+                            , maxIds = Dict.empty
+                            , firstTemplateWithDataMaxId = -1
+                            , errorMsg = errorMsg
+                            , eventProcessingErrorMsg = eventProcessingErrorMsg
+                            , completionMsg = completionMsg
+                            , tagger = tagger
+                            , messageDict = buildMessageDict query
+                            , first = True
+                            }
 
-                    cmd =
-                        connectToDb model queryStateId tagger
-                in
-                    ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
-            )
-            templateResult
+                        cmd =
+                            connectToDb model queryStateId tagger
+                    in
+                        ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
+                )
 
 
 refreshQuery : (Msg -> msg) -> Model msg -> Int -> ( Model msg, Cmd msg )
@@ -488,9 +486,9 @@ queryStateEncode queryState =
             , ( "currentTemplate", JE.int queryState.currentTemplate )
             , ( "templates", JE.list <| List.map JE.string queryState.templates )
             , ( "rootIds", JE.list <| List.map JE.string queryState.rootIds )
-            , ( "ids", Json.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
-            , ( "additionalCriteria", Json.encMaybe JE.string queryState.additionalCriteria )
-            , ( "maxIds", Json.encDict JE.string JE.int queryState.maxIds )
+            , ( "ids", JsonH.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
+            , ( "additionalCriteria", JsonH.encMaybe JE.string queryState.additionalCriteria )
+            , ( "maxIds", JsonH.encDict JE.string JE.int queryState.maxIds )
             , ( "firstTemplateWithDataMaxId", JE.int queryState.firstTemplateWithDataMaxId )
             ]
 
@@ -501,7 +499,9 @@ exportQueryState model queryStateId =
         maybeQueryState =
             Dict.get queryStateId model.queryStates
     in
-        Maybe.map (\queryState -> queryStateEncode queryState) maybeQueryState // ""
+        maybeQueryState
+            |?> (\queryState -> queryStateEncode queryState)
+            ?= ""
 
 
 queryStateDecode : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> MessageDict msg -> String -> Result String (QueryState msg)
@@ -514,9 +514,9 @@ queryStateDecode errorMsg eventProcessingErrorMsg completionMsg tagger messageDi
             <|| ("currentTemplate" := JD.int)
             <|| ("templates" := JD.list JD.string)
             <|| ("rootIds" := JD.list JD.string)
-            <|| ("ids" := Json.decConvertDict Set.fromList JD.string (JD.list JD.string))
+            <|| ("ids" := JsonH.decConvertDict Set.fromList JD.string (JD.list JD.string))
             <|| ("additionalCriteria" := JD.maybe JD.string)
-            <|| ("maxIds" := Json.decDict JD.string JD.int)
+            <|| ("maxIds" := JsonH.decDict JD.string JD.int)
             <|| ("firstTemplateWithDataMaxId" := JD.int)
             <|| JD.succeed errorMsg
             <|| JD.succeed eventProcessingErrorMsg
@@ -533,12 +533,12 @@ importQueryState errorMsg eventProcessingErrorMsg completionMsg tagger query mod
         templateResult =
             buildQueryTemplate query
     in
-        Result.map
-            (\queryState ->
-                let
-                    queryStateId =
-                        model.nextId
-                in
-                    { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
-            )
-            (queryStateDecode errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)
+        (queryStateDecode errorMsg eventProcessingErrorMsg completionMsg tagger (buildMessageDict query) json)
+            |??>
+                (\queryState ->
+                    let
+                        queryStateId =
+                            model.nextId
+                    in
+                        { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
+                )

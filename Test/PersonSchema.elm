@@ -6,7 +6,7 @@ import AddressSchema exposing (..)
 
 personSchema : EntitySchema
 personSchema =
-    { type' = "Person"
+    { type_ = "Person"
     , eventNames =
         [ "Person created"
         , "Person destroyed"

@@ -354,12 +354,12 @@ startStopListeners listenUnlisten router listeners state =
                         nativeListener =
                             Dict.get connectionId state.nativeListeners
 
-                        getTask connection type' =
+                        getTask connection type_ =
                             let
                                 settings =
-                                    (settings1 router (ErrorExecuteSQL connectionId sql) (SuccessListenUnlisten listenerState.channel type' connectionId))
+                                    (settings1 router (ErrorExecuteSQL connectionId sql) (SuccessListenUnlisten listenerState.channel type_ connectionId))
                             in
-                                if type' == "listen" then
+                                if type_ == "listen" then
                                     Native.Postgres.listen settings connection.client sql (\message -> Platform.sendToSelf router (ListenEvent connectionId listenerState.channel message))
                                 else
                                     Native.Postgres.unlisten settings connection.client sql nativeListener
@@ -551,13 +551,13 @@ withConnection state connectionId f =
 
 
 withTagger : State msg -> Maybe tagger -> String -> (tagger -> Task Never (State msg)) -> Task Never (State msg)
-withTagger state maybeTagger type' f =
+withTagger state maybeTagger type_ f =
     case maybeTagger of
         Just tagger ->
             f tagger
 
         Nothing ->
-            crashTask state <| "Missing " ++ type' ++ " Tagger in state: " ++ (toStringF <| printableState state)
+            crashTask state <| "Missing " ++ type_ ++ " Tagger in state: " ++ (toStringF <| printableState state)
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
@@ -650,7 +650,7 @@ onSelfMsg router selfMsg state =
             ErrorExecuteSQL connectionId sql err ->
                 sqlError connectionId sql err
 
-            SuccessListenUnlisten channel type' connectionId nativeListener ->
+            SuccessListenUnlisten channel type_ connectionId nativeListener ->
                 let
                     newListener =
                         (Maybe.map (\listenerState -> listenerState) (Dict.get connectionId state.listeners))
@@ -658,21 +658,21 @@ onSelfMsg router selfMsg state =
                     process connection =
                         let
                             newState =
-                                if type' == "listen" then
+                                if type_ == "listen" then
                                     { state | nativeListeners = Dict.insert connectionId nativeListener state.nativeListeners }
                                 else
                                     state
 
                             sendToApp tagger =
-                                Platform.sendToApp router (tagger ( connectionId, channel, type' ))
+                                Platform.sendToApp router (tagger ( connectionId, channel, type_ ))
                                     &> Task.succeed newState
                         in
                             withTagger state connection.listenTagger "ListenUnlisten" sendToApp
                 in
                     withConnection state connectionId process
 
-            ErrorListenUnlisten channel type' connectionId sql err ->
-                sqlError connectionId sql (String.join "," [ channel, type', err ])
+            ErrorListenUnlisten channel type_ connectionId sql err ->
+                sqlError connectionId sql (String.join "," [ channel, type_, err ])
 
             ListenEvent connectionId channel message ->
                 let

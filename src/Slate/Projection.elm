@@ -14,9 +14,9 @@ okOnly : a -> Dict comparable (Result x a) -> Dict comparable a
 okOnly default dictResult =
     dictResult
         |> Dict.toList
-        |> List.filter (\( key, value ) -> isOk value)
+        |> List.filter (snd >> isOk)
         |> Dict.fromList
-        |> projectMap (flip (///) (\_ -> default))
+        |> projectMap (flip (??=) (\_ -> default))
 
 
 projectionErrors : Dict comparable (Result (List x) b) -> List (List x)
