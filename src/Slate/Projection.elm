@@ -2,7 +2,8 @@ module Slate.Projection exposing (..)
 
 import Result.Extra as ResultE exposing (isOk)
 import Dict exposing (Dict)
-import Utils.Utils exposing (..)
+import Utils.Ops exposing (..)
+import Utils.Result exposing (..)
 
 
 projectMap : (a -> b) -> (Dict comparable a -> Dict comparable b)

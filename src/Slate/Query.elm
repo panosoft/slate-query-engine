@@ -7,7 +7,7 @@ import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
 import Maybe.Extra as MaybeE exposing (isNothing)
-import Utils.Utils exposing (..)
+import Utils.Ops exposing (..)
 import Slate.Schema exposing (..)
 import Slate.Event exposing (EventRecord)
 
@@ -46,17 +46,12 @@ query msg =
     }
 
 
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
-
-
 depthDict : Query msg -> Dict Int (List (NodeQuery msg))
 depthDict query =
     let
         add : NodeQuery msg -> Int -> Dict Int (List (NodeQuery msg)) -> Dict Int (List (NodeQuery msg))
         add nodeQuery depth dict =
-            Dict.insert depth (nodeQuery :: Dict.get depth dict // []) dict
+            Dict.insert depth (nodeQuery :: Dict.get depth dict ?= []) dict
 
         addChildren : List (Query msg) -> Int -> Dict Int (List (NodeQuery msg)) -> Dict Int (List (NodeQuery msg))
         addChildren children depth dict =
@@ -125,20 +120,22 @@ tupToArgs f ( a1, a2 ) =
 
 propertiesCheck : NodeQuery msg -> List String
 propertiesCheck nodeQuery =
-    if nodeQuery.schema /= emptySchema then
-        let
-            queryProperties =
-                Set.fromList <| nodeQuery.properties // []
+    case nodeQuery.schema /= emptySchema of
+        True ->
+            let
+                queryProperties =
+                    Set.fromList <| nodeQuery.properties ?= []
 
-            schemaProperties =
-                Set.fromList <| List.map .name nodeQuery.schema.properties
+                schemaProperties =
+                    Set.fromList <| List.map .name nodeQuery.schema.properties
 
-            diff =
-                Set.toList <| Set.diff queryProperties schemaProperties
-        in
-            List.map (flip (++) <| " is not a valid property for " ++ nodeQuery.schema.type_) diff
-    else
-        [ "Missing Schema in query node: " ++ (toString nodeQuery) ]
+                diff =
+                    Set.toList <| Set.diff queryProperties schemaProperties
+            in
+                List.map (flip (++) <| " is not a valid property for " ++ nodeQuery.schema.type_) diff
+
+        False ->
+            [ "Missing Schema in query node: " ++ (toString nodeQuery) ]
 
 
 validQuery : Query msg -> List String
@@ -150,10 +147,7 @@ validQuery query =
         entityNames =
             toFlatListMap (.schema >> .type_) query
     in
-        if (Set.size <| Set.fromList entityNames) /= List.length entityNames then
-            [ "Query must NOT be cyclic" ]
-        else
-            propertiesErrors
+        ((Set.size <| Set.fromList entityNames) /= List.length entityNames) ? ( [ "Query must NOT be cyclic" ], propertiesErrors )
 
 
 extractQueryEntityName : Query msg -> String
@@ -224,7 +218,7 @@ sqlTemplate : String
 sqlTemplate =
     """
 SELECT id, ts, (extract(epoch from ts)*100000)::numeric AS trans_id, event{{maxIdColumn}}
-FROM eventsx
+FROM events
 {{maxIdSQLClause}}
 WHERE ({entityTemplates})
     AND {{additionalCriteria}}
@@ -258,10 +252,16 @@ entityTemplate =
 parametricReplace : String -> String -> List ( String, String ) -> String -> String
 parametricReplace prefix suffix replacements template =
     let
+        -- l =
+        --     Debug.crash <| toString <| ( prefix, suffix, replacements, template )
         buildRegex param =
             Regex.escape <| prefix ++ param ++ suffix
     in
-        List.foldl (\( param, value ) template -> RegexU.replace All (buildRegex param) (RegexU.simpleReplacer value) template) template replacements
+        List.foldl (\( param, value ) template -> RegexU.replaceAll (buildRegex param) value template) template replacements
+
+
+
+-- List.foldl (\( param, value ) template -> RegexU.replace All (buildRegex param) (RegexU.simpleReplacer value) template) template replacements
 
 
 propertySchemaEventNames : NodeQuery msg -> List ( EntitySchema, List String )
@@ -281,13 +281,13 @@ getEventNames parent children =
     let
         propertyEventNames : List String
         propertyEventNames =
-            List.concat <| List.map .eventNames <| List.filter (\property -> List.member property.name (parent.properties // [])) parent.schema.properties
+            List.concat <| List.map .eventNames <| List.filter (\property -> List.member property.name (parent.properties ?= [])) parent.schema.properties
 
         parentPropertySchemaEventNames =
             propertySchemaEventNames parent
 
         findEventNames schema =
-            snd <| (ListE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) // ( schema, [] )
+            snd <| (ListE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) ?= ( schema, [] )
 
         childrenEventNames : List String
         childrenEventNames =
@@ -323,13 +323,12 @@ buildMessageDict query =
         eventNames : EntitySchema -> List ( Maybe String, String )
         eventNames schema =
             schema.properties
-                |> List.map
-                    (\property -> List.map ((,) <| Maybe.map propertyEntityType property.entitySchema) property.eventNames)
+                |> List.map (\property -> List.map ((,) <| property.entitySchema |?> propertyEntityType) property.eventNames)
                 |> List.concat
                 |> List.append (List.map ((,) Nothing) schema.eventNames)
 
         addToDict nodeQuery dict =
-            List.foldl (\( entityType, name ) dict -> Dict.insert name (MessageDictEntry nodeQuery.msg entityType) dict) dict <| eventNames nodeQuery.schema
+            List.foldl (\( maybeEntityType, name ) dict -> Dict.insert name (MessageDictEntry nodeQuery.msg maybeEntityType) dict) dict <| eventNames nodeQuery.schema
 
         build query dict =
             case query of
@@ -346,7 +345,7 @@ buildEntityTemplate : Dict String (List (NodeQuery msg)) -> NodeQuery msg -> Str
 buildEntityTemplate parentChild parent =
     let
         children =
-            (Dict.get parent.schema.type_ parentChild // [])
+            (Dict.get parent.schema.type_ parentChild ?= [])
 
         names =
             getEventNames parent children
@@ -355,7 +354,7 @@ buildEntityTemplate parentChild parent =
             String.join "," <| List.map (\name -> "'" ++ name ++ "'") names
 
         entityCriteria =
-            parent.criteria // "1=1"
+            parent.criteria ?= "1=1"
     in
         templateReplace
             [ ( "eventNames", eventNames )
@@ -375,7 +374,7 @@ buildSqlTemplate depthDict parentChild =
         build depth templates =
             let
                 queriesAtDepth =
-                    Dict.get depth depthDict // []
+                    Dict.get depth depthDict ?= []
 
                 entityTemplates =
                     String.join "\n\tOR " <| List.map (buildEntityTemplate parentChild) queriesAtDepth
@@ -389,10 +388,7 @@ buildSqlTemplate depthDict parentChild =
                 newTemplates =
                     template :: templates
             in
-                if depth > 0 then
-                    build (depth - 1) newTemplates
-                else
-                    newTemplates
+                (depth > 0) ?! ( \_ -> build (depth - 1) newTemplates, \_ -> newTemplates )
     in
         build (maxDepth - 1) []
 
@@ -403,11 +399,13 @@ buildQueryTemplate query =
         errors =
             validQuery query
     in
-        if errors /= [] then
-            Err errors
-        else
-            let
-                parentChildRelationships =
-                    parentChild query
-            in
-                Ok <| buildSqlTemplate (depthDict query) parentChildRelationships
+        case errors == [] of
+            True ->
+                let
+                    parentChildRelationships =
+                        parentChild query
+                in
+                    Ok <| buildSqlTemplate (depthDict query) parentChildRelationships
+
+            False ->
+                Err errors

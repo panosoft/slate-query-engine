@@ -1,5 +1,7 @@
 module Slate.Utils exposing (..)
 
+import Utils.Ops exposing (..)
+
 
 getValidEntity : List ( Bool, String ) -> entity -> Result (List String) entity
 getValidEntity errorChecks entity =
@@ -9,7 +11,4 @@ getValidEntity errorChecks entity =
                 |> List.filter fst
                 |> List.map snd
     in
-        if errors == [] then
-            Ok entity
-        else
-            Err errors
+        (errors == []) ? ( Ok entity, Err errors )

@@ -7,7 +7,7 @@ import Utils.Json as JsonH exposing ((///), (<||))
 import Slate.Event exposing (Event)
 import Slate.EventProcessing exposing (..)
 import Slate.Reference exposing (..)
-import Utils.Utils exposing (..)
+import Utils.Ops exposing (..)
 
 
 type alias EntireAddress =

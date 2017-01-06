@@ -5,12 +5,7 @@ import Date exposing (..)
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Slate.Reference exposing (..)
 import Slate.Event exposing (..)
-
-
-(//) : Maybe a -> a -> a
-(//) =
-    flip Maybe.withDefault
-
+import Utils.Ops exposing (..)
 
 
 -- Getters from Event Data
@@ -120,36 +115,37 @@ positionPropertyList : Maybe (List value) -> (Maybe (List value) -> entity -> en
 positionPropertyList maybeList update event entity =
     let
         list =
-            maybeList // []
-
-        errors =
-            List.map (((++) " is missing") << snd) <| List.filter (isNothing << fst) [ ( event.data.oldPosition, "Old Position" ), ( event.data.newPosition, "New Position" ) ]
-
-        ( oldPosition, newPosition ) =
-            ( event.data.oldPosition // 0, event.data.newPosition // 0 )
-
-        length =
-            List.length list
+            maybeList ?= []
 
         invalidMove =
             newPosition >= length - 1 || oldPosition >= length
+
+        errors =
+            (List.map (((++) " is missing") << snd) <| List.filter (isNothing << fst) [ ( event.data.oldPosition, "Old Position" ), ( event.data.newPosition, "New Position" ) ])
+                |> List.append (invalidMove ? ( [ "Positions are out of bounds" ++ (toString event) ], [] ))
+
+        ( oldPosition, newPosition ) =
+            ( event.data.oldPosition ?= 0, event.data.newPosition ?= 0 )
+
+        length =
+            List.length list
     in
-        if invalidMove then
-            Err <| "Positions are out of bounds" ++ (toString event)
-        else if errors /= [] then
-            Err <| String.join "\n" errors
-        else
-            let
-                item =
-                    List.take 1 (List.take oldPosition list)
+        case errors == [] of
+            True ->
+                let
+                    item =
+                        List.take 1 (List.take oldPosition list)
 
-                removed =
-                    List.append (List.take oldPosition list) (List.drop (oldPosition + 1) list)
+                    removed =
+                        List.append (List.take oldPosition list) (List.drop (oldPosition + 1) list)
 
-                inserted =
-                    List.append (List.take oldPosition list) (List.append item <| List.drop oldPosition list)
-            in
-                Ok <| update (Just inserted) entity
+                    inserted =
+                        List.append (List.take oldPosition list) (List.append item <| List.drop oldPosition list)
+                in
+                    Ok <| update (Just inserted) entity
+
+            False ->
+                Err <| String.join "\n" errors
 
 
 
@@ -164,7 +160,7 @@ positionPropertyList maybeList update event entity =
 -}
 appendPropertyList : Maybe (List listValue) -> listValue -> Maybe (List listValue)
 appendPropertyList list value =
-    Just <| List.append (list // []) [ value ]
+    Just <| List.append (list ?= []) [ value ]
 
 
 {-| Append to a property list

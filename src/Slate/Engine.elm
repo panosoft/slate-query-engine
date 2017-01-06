@@ -7,13 +7,13 @@ import Json.Decode as JD exposing (..)
 import Json.Encode as JE exposing (..)
 import Utils.Json as JsonH exposing ((///), (<||))
 import List.Extra as ListE exposing (..)
-import Maybe.Extra as MaybeE exposing (isNothing)
 import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
 import DebugF exposing (..)
 import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
 import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
-import Utils.Utils exposing (..)
+import Utils.Ops exposing (..)
+import Utils.Tuple exposing (..)
 import Postgres exposing (..)
 
 
@@ -174,24 +174,31 @@ update msg model =
                 queryState =
                     getQueryState queryStateId model
 
+                goodQueryState =
+                    queryState.badQueryState == False
+
+                startOfQuery =
+                    eventStrs == []
+
                 ( finalModel, cmd ) =
-                    if queryState.badQueryState == False then
-                        if eventStrs == [] then
-                            startQuery updatedModel queryStateId connectionId
-                        else
-                            ( updatedModel, nextQuery queryStateId connectionId )
-                    else
-                        model ! []
+                    case goodQueryState of
+                        True ->
+                            case startOfQuery of
+                                True ->
+                                    startQuery updatedModel queryStateId connectionId
+
+                                False ->
+                                    ( updatedModel, nextQuery queryStateId connectionId )
+
+                        False ->
+                            model ! []
 
                 {- handle end of query -}
                 endOfQuery =
                     cmd == Cmd.none
 
                 ( finalMsgs, finalCmd ) =
-                    if endOfQuery then
-                        ( List.append msgs [ queryState.completionMsg queryStateId ], Postgres.disconnect (DisconnectError queryStateId) (Disconnect queryStateId) connectionId False )
-                    else
-                        ( msgs, cmd )
+                    endOfQuery ? ( ( List.append msgs [ queryState.completionMsg queryStateId ], Postgres.disconnect (DisconnectError queryStateId) (Disconnect queryStateId) connectionId False ), ( msgs, cmd ) )
             in
                 ( finalModel ! [ finalCmd ], finalMsgs )
 
@@ -232,37 +239,20 @@ startQuery model queryStateId connectionId =
             queryState.firstTemplateWithDataMaxId /= -1
 
         maxIdColumn =
-            if haveFirstTemplateMaxId then
-                ""
-            else
-                ", q.max"
+            haveFirstTemplateMaxId ? ( "", ", q.max" )
 
         maxIdSQLClause =
-            if haveFirstTemplateMaxId then
-                ""
-            else
-                "CROSS JOIN (SELECT MAX(id) FROM events) AS q\n"
+            haveFirstTemplateMaxId ? ( "", "CROSS JOIN (SELECT MAX(id) FROM events) AS q\n" )
 
         firstTemplateWithDataMaxCriteria =
-            if haveFirstTemplateMaxId then
-                "AND id < " ++ (toString queryState.firstTemplateWithDataMaxId)
-            else
-                ""
+            haveFirstTemplateMaxId ? ( "AND id < " ++ (toString queryState.firstTemplateWithDataMaxId), "" )
 
         entityIds : Dict String (Set String)
         entityIds =
-            if firstTemplate then
-                Dict.insert queryState.rootEntity (Set.fromList queryState.rootIds) Dict.empty
-            else
-                queryState.ids
+            firstTemplate ? ( Dict.insert queryState.rootEntity (Set.fromList queryState.rootIds) Dict.empty, queryState.ids )
 
         lastMaxId =
-            toString
-                (if queryState.first then
-                    -1
-                 else
-                    (ListE.foldl1 max <| Dict.values queryState.maxIds) ?= -1
-                )
+            toString (queryState.first ? ( -1, (ListE.foldl1 max <| Dict.values queryState.maxIds) ?= -1 ))
 
         updateQueryState model queryState =
             { model | queryStates = Dict.insert queryStateId queryState model.queryStates }
@@ -282,11 +272,11 @@ startQuery model queryStateId connectionId =
 
                         replace entityType ids =
                             let
+                                noIds =
+                                    ids == []
+
                                 entityIdClause =
-                                    if ids == [] then
-                                        "1=1"
-                                    else
-                                        "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")"
+                                    noIds ? ( "1=1", "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")" )
                             in
                                 templateReplace [ ( entityType ++ "-entityIds", entityIdClause ) ]
 
@@ -341,50 +331,42 @@ processEvents model queryStateId eventStrs =
                                         resultRecordId
                                             |??>
                                                 (\recordId ->
-                                                    let
-                                                        maybeMsg =
-                                                            Dict.get event.name queryState.messageDict
-                                                    in
-                                                        maybeMsg
-                                                            |?> (\{ msg, maybeEntityType } ->
-                                                                    let
-                                                                        entityType =
-                                                                            maybeEntityType ?= ""
+                                                    Dict.get event.name queryState.messageDict
+                                                        |?> (\{ msg, maybeEntityType } ->
+                                                                let
+                                                                    firstTemplateWithDataMaxId =
+                                                                        max queryState.firstTemplateWithDataMaxId ((Result.toMaybe <| toInt <| eventRecord.max ?= "-1") ?= -1)
+                                                                in
+                                                                    {- add referenced entities to ids dictionary for next SQL query -}
+                                                                    maybeEntityType
+                                                                        |?> (\entityType ->
+                                                                                let
+                                                                                    currentEntityMaxId =
+                                                                                        (Dict.get entityType queryState.maxIds) ?= -1
 
-                                                                        currentEntityMaxId =
-                                                                            (Dict.get entityType queryState.maxIds) ?= -1
+                                                                                    entityMaxId =
+                                                                                        max currentEntityMaxId recordId
 
-                                                                        entityMaxId =
-                                                                            max currentEntityMaxId recordId
-
-                                                                        ids =
-                                                                            Dict.get entityType queryState.ids ?= Set.empty
-
-                                                                        firstTemplateWithDataMaxId =
-                                                                            max queryState.firstTemplateWithDataMaxId ((Result.toMaybe <| toInt <| eventRecord.max ?= "-1") ?= -1)
-
-                                                                        updateQueryState maybeIds entityMaxId =
-                                                                            ( { queryState
-                                                                                | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId
-                                                                                , ids =
-                                                                                    maybeIds ?= queryState.ids
-                                                                                , maxIds = Dict.insert entityType entityMaxId queryState.maxIds
-                                                                              }
-                                                                            , (msg eventRecord) :: msgs
+                                                                                    ids =
+                                                                                        Dict.get entityType queryState.ids ?= Set.empty
+                                                                                in
+                                                                                    event.data.referenceId
+                                                                                        |?> (\referenceId ->
+                                                                                                ( { queryState
+                                                                                                    | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId
+                                                                                                    , ids = Dict.insert entityType (Set.insert referenceId ids) queryState.ids
+                                                                                                    , maxIds = Dict.insert entityType entityMaxId queryState.maxIds
+                                                                                                  }
+                                                                                                , (msg eventRecord) :: msgs
+                                                                                                )
+                                                                                            )
+                                                                                        ?= (eventError eventStr msgs <| missingReferenceValue eventRecord)
                                                                             )
-                                                                    in
-                                                                        {- add referenced entities to ids dictionary for next SQL query -}
-                                                                        if not <| isNothing maybeEntityType then
-                                                                            if isNothing event.data.referenceId then
-                                                                                eventError eventStr msgs <| missingReferenceValue eventRecord
-                                                                            else
-                                                                                updateQueryState
-                                                                                    (Just <| Dict.insert entityType (Set.insert (event.data.referenceId ?= "") ids) queryState.ids)
-                                                                                    entityMaxId
-                                                                        else
-                                                                            updateQueryState Nothing entityMaxId
-                                                                )
-                                                            ?= eventError eventStr msgs eventNotInDict
+                                                                        ?= ( { queryState | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId }
+                                                                           , (msg eventRecord) :: msgs
+                                                                           )
+                                                            )
+                                                        ?= eventError eventStr msgs eventNotInDict
                                                 )
                                             ??= (\_ -> eventError eventStr msgs "Corrupt Event Record -- Invalid Id")
                                 )

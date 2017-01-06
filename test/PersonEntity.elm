@@ -8,7 +8,7 @@ import Slate.Event exposing (Event)
 import Slate.Reference exposing (..)
 import Slate.EventProcessing exposing (..)
 import AddressEntity exposing (..)
-import Utils.Utils exposing (..)
+import Utils.Ops exposing (..)
 
 
 -- Entity

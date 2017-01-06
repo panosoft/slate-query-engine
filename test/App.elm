@@ -11,7 +11,7 @@ import PersonEntity exposing (EntirePerson, defaultEntirePerson)
 import AddressEntity exposing (EntireAddress, defaultEntireAddress)
 import PersonSchema exposing (..)
 import AddressSchema exposing (..)
-import Utils.Utils as Utils exposing (..)
+import Utils.Ops exposing (..)
 import Slate.Utils exposing (..)
 import Slate.Query exposing (..)
 import Slate.Event exposing (..)
@@ -236,14 +236,11 @@ update msg model =
                 l =
                     Debug.log "EventProcessingComplete" ""
 
-                unknownQueryId =
-                    "Unknown query id: " ++ (toString queryId)
-
                 projectionResult : Result (List String) WrappedModel
                 projectionResult =
                     Dict.get queryId model.queries
                         |?> (\projection -> projection <| WrappedModel model)
-                        ?= (Err [ unknownQueryId ])
+                        ?= (Err [ "Unknown query id: " ++ (toString queryId) ])
 
                 crash =
                     projectionResult |??> identity ??= (Debug.crash << String.join "\n")
@@ -344,10 +341,7 @@ projectPersonQuery wrappedModel =
         allErrors =
             allProjectionErrors [ projectionErrors addresses, projectionErrors persons ]
     in
-        if allErrors == [] then
-            Ok <| WrappedModel newModel
-        else
-            Err allErrors
+        (allErrors == []) ? ( Ok <| WrappedModel newModel, Err allErrors )
 
 
 okAddressesOnly : Dict comparable (Result x Address) -> Dict comparable Address
@@ -389,11 +383,11 @@ defaultPerson =
 toPerson : Dict String Address -> EntirePerson -> Result (List String) Person
 toPerson addresses entirePerson =
     let
-        addressRef =
+        maybeAddressRef =
             entirePerson.address
 
-        address =
-            MaybeE.join <| addressRef |?> (\ref -> Dict.get ref addresses)
+        maybeAddress =
+            MaybeE.join <| entirePerson.address |?> (\ref -> Dict.get ref addresses)
 
         getPerson : Address -> Result (List String) Person
         getPerson address =
@@ -404,10 +398,12 @@ toPerson addresses entirePerson =
                 , address = address
                 }
     in
-        if isNothing address && (not <| isNothing addressRef) then
-            Err [ "Cannot find address id: " ++ (addressRef ?= "BUG") ]
-        else
-            getPerson <| address ?= defaultAddress
+        case isNothing maybeAddressRef of
+            True ->
+                getPerson defaultAddress
+
+            False ->
+                maybeAddress |?> getPerson ?= Err [ "Cannot find address id: " ++ (maybeAddressRef ?= "BUG") ]
 
 
 query : NodeQuery Msg
