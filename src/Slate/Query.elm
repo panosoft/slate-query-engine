@@ -281,7 +281,9 @@ getEventNames parent children =
     let
         propertyEventNames : List String
         propertyEventNames =
-            List.concat <| List.map .eventNames <| List.filter (\property -> List.member property.name (parent.properties ?= [])) parent.schema.properties
+            List.filter (\property -> List.member property.name (parent.properties ?= [])) parent.schema.properties
+                |> List.map .eventNames
+                |> List.concat
 
         parentPropertySchemaEventNames =
             propertySchemaEventNames parent
