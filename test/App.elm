@@ -20,6 +20,7 @@ import Slate.Projection exposing (..)
 import Date exposing (Date)
 import Postgres exposing (..)
 import DebugF exposing (..)
+import ParentChildUpdate exposing (..)
 
 
 port node : Float -> Cmd msg
@@ -77,17 +78,8 @@ type Msg
     | ListenEvent ( Int, String, String )
 
 
-type alias ConnectionInfo =
-    { host : String
-    , port_ : Int
-    , database : String
-    , user : String
-    , password : String
-    }
-
-
-connectionInfo : ConnectionInfo
-connectionInfo =
+engineConfig : Engine.Config
+engineConfig =
     { host = "postgresDBServer"
     , port_ = 5432
     , database = "test"
@@ -102,28 +94,28 @@ initModel =
     , entireAddresses = Dict.empty
     , persons = Dict.empty
     , addresses = Dict.empty
-    , engineModel = Engine.initModel connectionInfo.host connectionInfo.port_ connectionInfo.database connectionInfo.user connectionInfo.password
+    , engineModel = Engine.initModel
     , queries = Dict.empty
     , didRefresh = False
     , listenConnectionId = Nothing
     }
 
 
-executeQuery : Maybe String -> Query Msg -> List String -> Result (List String) ( Engine.Model Msg, Cmd Msg, Int )
+executeQuery : Engine.Model Msg -> Maybe String -> Query Msg -> List String -> Result (List String) ( Engine.Model Msg, Cmd Msg, Int )
 executeQuery =
-    Engine.executeQuery EngineError EventProcessingError EventProcessingComplete SlateEngine initModel.engineModel
+    Engine.executeQuery EngineError EventProcessingError EventProcessingComplete SlateEngine engineConfig
 
 
 refreshQuery : Engine.Model Msg -> Int -> ( Engine.Model Msg, Cmd Msg )
 refreshQuery =
-    Engine.refreshQuery SlateEngine
+    Engine.refreshQuery SlateEngine engineConfig
 
 
 init : ( Model, Cmd Msg )
 init =
     let
         result =
-            executeQuery Nothing personQuery [ "123", "456" ]
+            executeQuery initModel.engineModel Nothing personQuery [ "123", "456" ]
 
         -- executeQuery (Just "id NOT IN (3, 7)") personQuery [ "123", "456" ]
     in
@@ -131,7 +123,7 @@ init =
             Ok ( engineModel, cmd, queryId ) ->
                 { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries }
                     ! [ cmd
-                      , Postgres.connect ConnectError Connect ConnectionLost 15000 connectionInfo.host connectionInfo.port_ connectionInfo.database connectionInfo.user connectionInfo.password
+                      , Postgres.connect ConnectError Connect ConnectionLost 15000 engineConfig.host engineConfig.port_ engineConfig.database engineConfig.user engineConfig.password
                       ]
 
             Err err ->
@@ -161,159 +153,169 @@ mutationError type_ model =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
-        Nop ->
-            model ! []
-
-        ConnectError ( connectionId, error ) ->
-            let
-                l =
-                    Debug.log "ConnectError" ( connectionId, error )
-            in
+    let
+        updateEngine : Engine.Msg -> Model -> ( Model, Cmd Msg )
+        updateEngine =
+            ParentChildUpdate.updateChildApp (Engine.update engineConfig) update .engineModel SlateEngine (\model engineModel -> { model | engineModel = engineModel })
+    in
+        case msg of
+            Nop ->
                 model ! []
 
-        Connect connectionId ->
-            let
-                l =
-                    Debug.log "Connect" connectionId
-            in
-                { model | listenConnectionId = Just connectionId } ! []
+            ConnectError ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.log "ConnectError" ( connectionId, error )
+                in
+                    model ! []
 
-        ConnectionLost ( connectionId, error ) ->
-            let
-                l =
-                    Debug.log "ConnectionLost" ( connectionId, error )
-            in
-                model ! []
+            Connect connectionId ->
+                let
+                    l =
+                        Debug.log "Connect" connectionId
+                in
+                    { model | listenConnectionId = Just connectionId } ! []
 
-        -- Tick time ->
-        --     -- outputting to a port is a Cmd msg
-        --     ( model, node 1 )
-        SlateEngine engineMsg ->
-            let
-                l =
-                    DebugF.log "engineMsg" engineMsg
+            ConnectionLost ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.log "ConnectionLost" ( connectionId, error )
+                in
+                    model ! []
 
-                ( ( engineModel, engineCmd ), appMsgs ) =
-                    Engine.update engineMsg model.engineModel
+            -- Tick time ->
+            --     -- outputting to a port is a Cmd msg
+            --     ( model, node 1 )
+            SlateEngine engineMsg ->
+                let
+                    l =
+                        DebugF.log "engineMsg" engineMsg
+                in
+                    updateEngine engineMsg model
 
-                doUpdate msg ( model, cmds ) =
-                    let
-                        ( newModel, newCmd ) =
-                            update msg model
-                    in
-                        ( newModel, newCmd :: cmds )
+            -- let
+            --     l =
+            --         DebugF.log "engineMsg" engineMsg
+            --
+            --     ( ( engineModel, engineCmd ), appMsgs ) =
+            --         Engine.update engineMsg model.engineModel
+            --
+            --     doUpdate msg ( model, cmds ) =
+            --         let
+            --             ( newModel, newCmd ) =
+            --                 update msg model
+            --         in
+            --             ( newModel, newCmd :: cmds )
+            --
+            --     ( newModel, myCmds ) =
+            --         List.foldl doUpdate ( { model | engineModel = engineModel }, [] ) appMsgs
+            --
+            --     myCmd =
+            --         myCmds
+            --             |> List.filter ((/=) Cmd.none)
+            --             |> Cmd.batch
+            -- in
+            --     newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
+            MutatePerson eventRecord ->
+                PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
+                    |??> (\newDict -> { model | entirePersons = newDict } ! [])
+                    ??= mutationError "Person" model
 
-                ( newModel, myCmds ) =
-                    List.foldl doUpdate ( { model | engineModel = engineModel }, [] ) appMsgs
+            MutateAddress eventRecord ->
+                AddressEntity.handleMutation model.entireAddresses eventRecord.event
+                    |??> (\newDict -> { model | entireAddresses = newDict } ! [])
+                    ??= mutationError "Address" model
 
-                myCmd =
-                    myCmds
-                        |> List.filter ((/=) Cmd.none)
-                        |> Cmd.batch
-            in
-                newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
+            EngineError ( queryId, err ) ->
+                let
+                    l =
+                        Debug.log "EngineError" ( queryId, err )
+                in
+                    model ! []
 
-        MutatePerson eventRecord ->
-            PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
-                |??> (\newDict -> { model | entirePersons = newDict } ! [])
-                ??= mutationError "Person" model
+            EventProcessingComplete queryId ->
+                let
+                    l =
+                        Debug.log "EventProcessingComplete" ""
 
-        MutateAddress eventRecord ->
-            AddressEntity.handleMutation model.entireAddresses eventRecord.event
-                |??> (\newDict -> { model | entireAddresses = newDict } ! [])
-                ??= mutationError "Address" model
+                    projectionResult : Result (List String) WrappedModel
+                    projectionResult =
+                        Dict.get queryId model.queries
+                            |?> (\projection -> projection <| WrappedModel model)
+                            ?= (Err [ "Unknown query id: " ++ (toString queryId) ])
 
-        EngineError ( queryId, err ) ->
-            let
-                l =
-                    Debug.log "EngineError" ( queryId, err )
-            in
-                model ! []
+                    crash =
+                        projectionResult |??> identity ??= (Debug.crash << String.join "\n")
 
-        EventProcessingComplete queryId ->
-            let
-                l =
-                    Debug.log "EventProcessingComplete" ""
+                    newModel =
+                        projectionResult |??> (\wrappedModel -> unwrapModel wrappedModel) ??= (\_ -> model)
 
-                projectionResult : Result (List String) WrappedModel
-                projectionResult =
-                    Dict.get queryId model.queries
-                        |?> (\projection -> projection <| WrappedModel model)
-                        ?= (Err [ "Unknown query id: " ++ (toString queryId) ])
+                    ( newEngineModel, cmd ) =
+                        if newModel.didRefresh == False then
+                            refreshQuery newModel.engineModel queryId
+                        else
+                            -- let
+                            --     json =
+                            --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
+                            --
+                            --     import_ =
+                            --         Engine.importQueryState EngineError EventProcessingError EventProcessingComplete SlateEngine
+                            --
+                            --     result =
+                            --         Debug.log "import" <| import_ personQuery newModel.engineModel json
+                            -- in
+                            ( newModel.engineModel, Cmd.none )
+                in
+                    { newModel | didRefresh = True, engineModel = newEngineModel } ! [ cmd ]
 
-                crash =
-                    projectionResult |??> identity ??= (Debug.crash << String.join "\n")
+            EventError eventRecord ( queryId, err ) ->
+                let
+                    l =
+                        Debug.crash <| "Event Processing error: " ++ err ++ " for: " ++ (toString eventRecord) ++ " on query: " ++ (toString queryId)
+                in
+                    model ! []
 
-                newModel =
-                    projectionResult |??> (\wrappedModel -> unwrapModel wrappedModel) ??= (\_ -> model)
+            MutationError entityType err ->
+                let
+                    l =
+                        Debug.crash <| "Cannot mutate model for entity: " ++ entityType ++ " (" ++ err ++ ")"
+                in
+                    model ! []
 
-                ( newEngineModel, cmd ) =
-                    if newModel.didRefresh == False then
-                        refreshQuery newModel.engineModel queryId
-                    else
-                        -- let
-                        --     json =
-                        --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
-                        --
-                        --     import_ =
-                        --         Engine.importQueryState EngineError EventProcessingError EventProcessingComplete SlateEngine
-                        --
-                        --     result =
-                        --         Debug.log "import" <| import_ personQuery newModel.engineModel json
-                        -- in
-                        ( newModel.engineModel, Cmd.none )
-            in
-                { newModel | didRefresh = True, engineModel = newEngineModel } ! [ cmd ]
+            MissingMutationMsg eventRecord ->
+                let
+                    l =
+                        Debug.crash <| "Bad query, missing mutation message for:  " ++ (toString eventRecord)
+                in
+                    model ! []
 
-        EventError eventRecord ( queryId, err ) ->
-            let
-                l =
-                    Debug.crash <| "Event Processing error: " ++ err ++ " for: " ++ (toString eventRecord) ++ " on query: " ++ (toString queryId)
-            in
-                model ! []
+            EventProcessingError ( eventStr, error ) ->
+                let
+                    l =
+                        Debug.crash <| "Event Processing Error: " ++ (toString eventStr) ++ " error: " ++ error
+                in
+                    model ! []
 
-        MutationError entityType err ->
-            let
-                l =
-                    Debug.crash <| "Cannot mutate model for entity: " ++ entityType ++ " (" ++ err ++ ")"
-            in
-                model ! []
+            ListenUnlistenError channel ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.crash <| "Cannot listen to channel ':  " ++ channel ++ "' error: " ++ error
+                in
+                    model ! []
 
-        MissingMutationMsg eventRecord ->
-            let
-                l =
-                    Debug.crash <| "Bad query, missing mutation message for:  " ++ (toString eventRecord)
-            in
-                model ! []
+            ListenUnlisten ( connectionId, channel, type_ ) ->
+                let
+                    l =
+                        Debug.log "ListenUnlisten" ( connectionId, channel, type_ )
+                in
+                    model ! []
 
-        EventProcessingError ( eventStr, error ) ->
-            let
-                l =
-                    Debug.crash <| "Event Processing Error: " ++ (toString eventStr) ++ " error: " ++ error
-            in
-                model ! []
-
-        ListenUnlistenError channel ( connectionId, error ) ->
-            let
-                l =
-                    Debug.crash <| "Cannot listen to channel ':  " ++ channel ++ "' error: " ++ error
-            in
-                model ! []
-
-        ListenUnlisten ( connectionId, channel, type_ ) ->
-            let
-                l =
-                    Debug.log "ListenUnlisten" ( connectionId, channel, type_ )
-            in
-                model ! []
-
-        ListenEvent ( connectionId, channel, message ) ->
-            let
-                l =
-                    Debug.log "ListenEvent" ( connectionId, channel, message )
-            in
-                model ! []
+            ListenEvent ( connectionId, channel, message ) ->
+                let
+                    l =
+                        Debug.log "ListenEvent" ( connectionId, channel, message )
+                in
+                    model ! []
 
 
 unwrapModel : WrappedModel -> Model

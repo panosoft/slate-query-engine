@@ -1,4 +1,15 @@
-module Slate.Engine exposing (Model, Msg, update, initModel, executeQuery, refreshQuery, importQueryState, exportQueryState)
+module Slate.Engine
+    exposing
+        ( Config
+        , Model
+        , Msg
+        , update
+        , initModel
+        , executeQuery
+        , refreshQuery
+        , importQueryState
+        , exportQueryState
+        )
 
 import String exposing (..)
 import Dict exposing (..)
@@ -57,26 +68,25 @@ type alias QueryState msg =
     }
 
 
-type alias Model msg =
-    { nextId : Int
-    , queryStates : Dict Int (QueryState msg)
-    , host : String
-    , port' : Int
+type alias Config =
+    { host : String
+    , port_ : Int
     , database : String
     , user : String
     , password : String
     }
 
 
-initModel : String -> Int -> String -> String -> String -> Model msg
-initModel host port' database user password =
+type alias Model msg =
+    { nextId : Int
+    , queryStates : Dict Int (QueryState msg)
+    }
+
+
+initModel : Model msg
+initModel =
     { nextId = 0
     , queryStates = Dict.empty
-    , host = host
-    , port' = port'
-    , database = database
-    , user = user
-    , password = password
     }
 
 
@@ -110,8 +120,8 @@ connectionFailure queryStateId model error =
         ( model ! [], [ queryState.errorMsg <| ( queryStateId, error ) ] )
 
 
-update : Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
-update msg model =
+update : Config -> Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
+update config msg model =
     case msg of
         Nop ->
             ( model ! [], [] )
@@ -383,17 +393,17 @@ nextQuery queryStateId connectionId =
     Postgres.moreQueryResults (QueryError queryStateId) (Events queryStateId) connectionId
 
 
-connectToDb : Model msg -> Int -> (Msg -> msg) -> Cmd msg
-connectToDb model queryStateId tagger =
-    Postgres.connect (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId)) 15000 model.host model.port' model.database model.user model.password
+connectToDb : Config -> Int -> (Msg -> msg) -> Cmd msg
+connectToDb config queryStateId tagger =
+    Postgres.connect (tagger << (ConnectError queryStateId)) (tagger << (Connect queryStateId)) (tagger << (ConnectionLost queryStateId)) 15000 config.host config.port_ config.database config.user config.password
 
 
 
 -- Public API
 
 
-executeQuery : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> Model msg -> Maybe String -> Query msg -> List String -> Result (List String) ( Model msg, Cmd msg, Int )
-executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additionalCriteria query rootIds =
+executeQuery : ErrorMsg msg -> EventProcessingErrorMsg msg -> (Int -> msg) -> (Msg -> msg) -> Config -> Model msg -> Maybe String -> Query msg -> List String -> Result (List String) ( Model msg, Cmd msg, Int )
+executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger config model additionalCriteria query rootIds =
     let
         templateResult =
             buildQueryTemplate query
@@ -432,14 +442,14 @@ executeQuery errorMsg eventProcessingErrorMsg completionMsg tagger model additio
                             }
 
                         cmd =
-                            connectToDb model queryStateId tagger
+                            connectToDb config queryStateId tagger
                     in
                         ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
                 )
 
 
-refreshQuery : (Msg -> msg) -> Model msg -> Int -> ( Model msg, Cmd msg )
-refreshQuery tagger model queryStateId =
+refreshQuery : (Msg -> msg) -> Config -> Model msg -> Int -> ( Model msg, Cmd msg )
+refreshQuery tagger config model queryStateId =
     let
         queryState =
             getQueryState queryStateId model
@@ -450,7 +460,7 @@ refreshQuery tagger model queryStateId =
         newModel =
             { model | queryStates = Dict.insert queryStateId newQueryState model.queryStates }
     in
-        ( newModel, connectToDb model queryStateId tagger )
+        ( newModel, connectToDb config queryStateId tagger )
 
 
 closeQuery : Model msg -> Int -> Model msg
