@@ -16,7 +16,7 @@ import Dict exposing (..)
 import Set exposing (..)
 import Json.Decode as JD exposing (..)
 import Json.Encode as JE exposing (..)
-import Utils.Json as JsonH exposing ((///), (<||))
+import Utils.Json as JsonU exposing ((///), (<||))
 import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
@@ -478,9 +478,9 @@ queryStateEncode queryState =
             , ( "currentTemplate", JE.int queryState.currentTemplate )
             , ( "templates", JE.list <| List.map JE.string queryState.templates )
             , ( "rootIds", JE.list <| List.map JE.string queryState.rootIds )
-            , ( "ids", JsonH.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
-            , ( "additionalCriteria", JsonH.encMaybe JE.string queryState.additionalCriteria )
-            , ( "maxIds", JsonH.encDict JE.string JE.int queryState.maxIds )
+            , ( "ids", JsonU.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
+            , ( "additionalCriteria", JsonU.encMaybe JE.string queryState.additionalCriteria )
+            , ( "maxIds", JsonU.encDict JE.string JE.int queryState.maxIds )
             , ( "firstTemplateWithDataMaxId", JE.int queryState.firstTemplateWithDataMaxId )
             ]
 
@@ -506,9 +506,9 @@ queryStateDecode errorMsg eventProcessingErrorMsg completionMsg tagger messageDi
             <|| ("currentTemplate" := JD.int)
             <|| ("templates" := JD.list JD.string)
             <|| ("rootIds" := JD.list JD.string)
-            <|| ("ids" := JsonH.decConvertDict Set.fromList JD.string (JD.list JD.string))
+            <|| ("ids" := JsonU.decConvertDict Set.fromList JD.string (JD.list JD.string))
             <|| ("additionalCriteria" := JD.maybe JD.string)
-            <|| ("maxIds" := JsonH.decDict JD.string JD.int)
+            <|| ("maxIds" := JsonU.decDict JD.string JD.int)
             <|| ("firstTemplateWithDataMaxId" := JD.int)
             <|| JD.succeed errorMsg
             <|| JD.succeed eventProcessingErrorMsg
