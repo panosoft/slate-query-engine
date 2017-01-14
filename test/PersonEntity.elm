@@ -1,9 +1,20 @@
-module PersonEntity exposing (..)
+module PersonEntity
+    exposing
+        ( EntirePerson
+        , DefaultEntirePerson
+        , Name
+        , entirePersonShell
+        , defaultEntirePerson
+        , entirePersonEncode
+        , entirePersonDecode
+        , handleMutation
+        , mutate
+        )
 
 import Dict exposing (..)
 import Json.Encode as JE exposing (..)
 import Json.Decode as JD exposing (..)
-import Utils.Json as JsonH exposing ((///), (<||))
+import Utils.Json as JsonU exposing ((///), (<||))
 import Slate.Event exposing (Event)
 import Slate.Reference exposing (..)
 import Slate.EventProcessing exposing (..)
@@ -90,11 +101,12 @@ nameDecoder =
 entirePersonEncode : EntirePerson -> String
 entirePersonEncode person =
     JE.encode 0 <|
-        JE.object
-            [ ( "name", JsonH.encMaybe nameEncode person.name )
-            , ( "age", JsonH.encMaybe JE.int person.age )
-            , ( "address", JsonH.encMaybe Slate.Reference.entityReferenceEncode person.address )
-            ]
+        JE.object <|
+            (List.filter (\( _, value ) -> value /= JE.null))
+                [ ( "name", JsonU.encMaybe nameEncode person.name )
+                , ( "age", JsonU.encMaybe JE.int person.age )
+                , ( "address", JsonU.encMaybe Slate.Reference.entityReferenceEncode person.address )
+                ]
 
 
 entirePersonDecode : String -> Result String EntirePerson

@@ -1,9 +1,19 @@
-module AddressEntity exposing (..)
+module AddressEntity
+    exposing
+        ( EntireAddress
+        , DefaultEntireAddress
+        , entireAddressShell
+        , defaultEntireAddress
+        , entireAddressEncode
+        , entireAddressDecode
+        , handleMutation
+        , mutate
+        )
 
 import Dict exposing (..)
 import Json.Encode as JE exposing (..)
 import Json.Decode as JD exposing (..)
-import Utils.Json as JsonH exposing ((///), (<||))
+import Utils.Json as JsonU exposing ((///), (<||))
 import Slate.Event exposing (Event)
 import Slate.EventProcessing exposing (..)
 import Slate.Reference exposing (..)
@@ -18,8 +28,8 @@ type alias EntireAddress =
     }
 
 
-{-| Starting point for all subSets of Addresses
-    since events are applied one at a time to build the final subSet entity
+{-| Starting point for all Addresses
+    since events are applied one at a time to build the final entity
 -}
 entireAddressShell : EntireAddress
 entireAddressShell =
@@ -54,12 +64,13 @@ defaultEntireAddress =
 entireAddressEncode : EntireAddress -> String
 entireAddressEncode address =
     JE.encode 0 <|
-        JE.object
-            [ ( "street", JsonH.encMaybe JE.string address.street )
-            , ( "city", JsonH.encMaybe JE.string address.city )
-            , ( "state", JsonH.encMaybe JE.string address.state )
-            , ( "zip", JsonH.encMaybe JE.string address.zip )
-            ]
+        JE.object <|
+            (List.filter (\( _, value ) -> value /= JE.null))
+                [ ( "street", JsonU.encMaybe JE.string address.street )
+                , ( "city", JsonU.encMaybe JE.string address.city )
+                , ( "state", JsonU.encMaybe JE.string address.state )
+                , ( "zip", JsonU.encMaybe JE.string address.zip )
+                ]
 
 
 entireAddressDecode : String -> Result String EntireAddress
