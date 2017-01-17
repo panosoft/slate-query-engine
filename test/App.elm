@@ -78,13 +78,17 @@ type Msg
     | ListenEvent ( Int, String, String )
 
 
-engineConfig : Engine.Config
+engineConfig : Engine.Config Msg
 engineConfig =
     { host = "postgresDBServer"
     , port_ = 5432
     , database = "test"
     , user = "charles"
     , password = "testpassword"
+    , errorMsg = EngineError
+    , eventProcessingErrorMsg = EventProcessingError
+    , completionMsg = EventProcessingComplete
+    , tagger = SlateEngine
     }
 
 
@@ -103,12 +107,12 @@ initModel =
 
 executeQuery : Engine.Model Msg -> Maybe String -> Query Msg -> List String -> Result (List String) ( Engine.Model Msg, Cmd Msg, Int )
 executeQuery =
-    Engine.executeQuery EngineError EventProcessingError EventProcessingComplete SlateEngine engineConfig
+    Engine.executeQuery engineConfig
 
 
 refreshQuery : Engine.Model Msg -> Int -> ( Engine.Model Msg, Cmd Msg )
 refreshQuery =
-    Engine.refreshQuery SlateEngine engineConfig
+    Engine.refreshQuery engineConfig
 
 
 init : ( Model, Cmd Msg )
