@@ -176,6 +176,15 @@ update msg model =
         updateEngine : Engine.Msg -> Model -> ( Model, Cmd Msg )
         updateEngine =
             ParentChildUpdate.updateChildApp (Engine.update engineConfig) update .engineModel SlateEngine (\model engineModel -> { model | engineModel = engineModel })
+
+        processCascadingMutation =
+            processCascadingMutationResult model
+                deleteTaggers
+                MutationError
+                update
+
+        processMutation =
+            processMutationResult model
     in
         case msg of
             Nop ->
@@ -236,38 +245,23 @@ update msg model =
             -- in
             --     newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
             MutatePerson eventRecord ->
-                let
-                    ( mutationResult, maybeDelete ) =
-                        PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
-                in
-                    mutationResult
-                        |??>
-                            (\newDict ->
-                                let
-                                    newModel =
-                                        { model | entirePersons = Debug.log "New Person Dictionary" newDict }
-
-                                    ( finalModel, cmd ) =
-                                        maybeDelete
-                                            |?> (\delete ->
-                                                    buildCascadingDeleteMsg eventRecord deleteTaggers MutationError delete
-                                                        |?> (\msg -> update msg newModel)
-                                                        ?= (model ! [])
-                                                )
-                                            ?= (newModel ! [])
-                                in
-                                    newModel ! [ cmd ]
-                            )
-                        ??= mutationError "Person" model
+                processCascadingMutation
+                    eventRecord
+                    (\model newDict -> { model | entirePersons = Debug.log "New Person Dictionary" newDict })
+                    (mutationError "Person")
+                <|
+                    PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
 
             MutateAddress eventRecord ->
                 let
                     l =
                         Debug.log "MutateAddress" eventRecord
                 in
-                    AddressEntity.handleMutation model.entireAddresses eventRecord.event
-                        |??> (\newDict -> { model | entireAddresses = Debug.log "New Address Dictionary" newDict } ! [])
-                        ??= mutationError "Address" model
+                    processMutation
+                        (\model newDict -> { model | entireAddresses = Debug.log "New Address Dictionary" newDict })
+                        (mutationError "Address")
+                    <|
+                        AddressEntity.handleMutation model.entireAddresses eventRecord.event
 
             EngineError ( queryId, err ) ->
                 let
