@@ -7,16 +7,18 @@ import Dict exposing (Dict)
 import Html exposing (..)
 import Html.App
 import Maybe.Extra as MaybeE exposing (isNothing)
-import PersonEntity exposing (EntirePerson, defaultEntirePerson)
-import AddressEntity exposing (EntireAddress, defaultEntireAddress)
-import PersonSchema exposing (..)
-import AddressSchema exposing (..)
+import Slate.TestEntities.PersonEntity as PersonEntity exposing (EntirePerson, EntirePersonDict, defaultEntirePerson)
+import Slate.TestEntities.AddressEntity as AddressEntity exposing (EntireAddress, EntireAddressDict, defaultEntireAddress)
+import Slate.TestEntities.PersonSchema as PersonSchema exposing (..)
+import Slate.TestEntities.AddressSchema as AddressSchema exposing (..)
 import Utils.Ops exposing (..)
-import Slate.Utils exposing (..)
-import Slate.Query exposing (..)
-import Slate.Event exposing (..)
-import Slate.Engine as Engine exposing (..)
-import Slate.Projection exposing (..)
+import Slate.Engine.Query exposing (..)
+import Slate.Engine.Engine as Engine exposing (..)
+import Slate.Common.Event exposing (..)
+import Slate.Common.Reference exposing (..)
+import Slate.Common.Projection exposing (..)
+import Slate.Common.Mutation exposing (..)
+import Slate.Common.EntityUtils exposing (..)
 import Date exposing (Date)
 import Postgres exposing (..)
 import DebugF exposing (..)
@@ -30,11 +32,19 @@ type WrappedModel
     = WrappedModel Model
 
 
+type alias PersonDict =
+    Dict EntityReference Person
+
+
+type alias AddressDict =
+    Dict EntityReference Address
+
+
 type alias Model =
-    { entirePersons : Dict String EntirePerson
-    , entireAddresses : Dict String EntireAddress
-    , persons : Dict String Person
-    , addresses : Dict String Address
+    { entirePersons : EntirePersonDict
+    , entireAddresses : EntireAddressDict
+    , persons : PersonDict
+    , addresses : AddressDict
     , engineModel : Engine.Model Msg
     , queries : Dict Int (WrappedModel -> Result (List String) WrappedModel)
     , didRefresh : Bool
@@ -155,6 +165,11 @@ mutationError type_ model =
     (\err -> update (MutationError type_ err) model)
 
 
+deleteTaggers : CascadingDeletionTaggers Msg
+deleteTaggers =
+    Dict.fromList [ ( "Address", MutateAddress ) ]
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     let
@@ -221,14 +236,38 @@ update msg model =
             -- in
             --     newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
             MutatePerson eventRecord ->
-                PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
-                    |??> (\newDict -> { model | entirePersons = newDict } ! [])
-                    ??= mutationError "Person" model
+                let
+                    ( mutationResult, maybeDelete ) =
+                        PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
+                in
+                    mutationResult
+                        |??>
+                            (\newDict ->
+                                let
+                                    newModel =
+                                        { model | entirePersons = Debug.log "New Person Dictionary" newDict }
+
+                                    ( finalModel, cmd ) =
+                                        maybeDelete
+                                            |?> (\delete ->
+                                                    buildCascadingDeleteMsg eventRecord deleteTaggers MutationError delete
+                                                        |?> (\msg -> update msg newModel)
+                                                        ?= (model ! [])
+                                                )
+                                            ?= (newModel ! [])
+                                in
+                                    newModel ! [ cmd ]
+                            )
+                        ??= mutationError "Person" model
 
             MutateAddress eventRecord ->
-                AddressEntity.handleMutation model.entireAddresses eventRecord.event
-                    |??> (\newDict -> { model | entireAddresses = newDict } ! [])
-                    ??= mutationError "Address" model
+                let
+                    l =
+                        Debug.log "MutateAddress" eventRecord
+                in
+                    AddressEntity.handleMutation model.entireAddresses eventRecord.event
+                        |??> (\newDict -> { model | entireAddresses = Debug.log "New Address Dictionary" newDict } ! [])
+                        ??= mutationError "Address" model
 
             EngineError ( queryId, err ) ->
                 let
@@ -339,20 +378,15 @@ projectPersonQuery wrappedModel =
             projectMap toAddress model.entireAddresses
 
         persons =
-            projectMap (toPerson <| okAddressesOnly addresses) model.entirePersons
+            projectMap (toPerson <| successfulProjections addresses) model.entirePersons
 
         newModel =
-            { model | persons = okPersonsOnly persons, addresses = okAddressesOnly addresses }
+            { model | persons = successfulProjections persons, addresses = successfulProjections addresses }
 
         allErrors =
-            allProjectionErrors [ projectionErrors addresses, projectionErrors persons ]
+            allFailedProjections [ failedProjections addresses, failedProjections persons ]
     in
         (allErrors == []) ? ( Ok <| WrappedModel newModel, Err allErrors )
-
-
-okAddressesOnly : Dict comparable (Result x Address) -> Dict comparable Address
-okAddressesOnly =
-    okOnly defaultAddress
 
 
 defaultAddress : Address
@@ -372,11 +406,6 @@ toAddress entireAddress =
         }
 
 
-okPersonsOnly : Dict comparable (Result x Person) -> Dict comparable Person
-okPersonsOnly =
-    okOnly defaultPerson
-
-
 defaultPerson : Person
 defaultPerson =
     { name = defaultEntirePerson.name
@@ -386,14 +415,14 @@ defaultPerson =
 
 {-| convert entire person to person
 -}
-toPerson : Dict String Address -> EntirePerson -> Result (List String) Person
+toPerson : AddressDict -> EntirePerson -> Result (List String) Person
 toPerson addresses entirePerson =
     let
         maybeAddressRef =
             entirePerson.address
 
         maybeAddress =
-            MaybeE.join <| entirePerson.address |?> (\ref -> Dict.get ref addresses)
+            MaybeE.join <| maybeAddressRef |?> (\ref -> Dict.get ref addresses)
 
         getPerson : Address -> Result (List String) Person
         getPerson address =
@@ -414,7 +443,7 @@ toPerson addresses entirePerson =
 
 query : NodeQuery Msg
 query =
-    Slate.Query.query MissingMutationMsg
+    Slate.Engine.Query.query MissingMutationMsg
 
 
 personQuery : Query Msg
@@ -423,7 +452,7 @@ personQuery =
         [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]
 
 
-emptyEventData : EventData
+emptyEventData : MutatingEventData
 emptyEventData =
     { entityId = ""
     , value = Nothing
@@ -440,7 +469,12 @@ testUpdate =
         eventRecord =
             { id = "1"
             , ts = Date.fromTime 0
-            , event = { name = "Person created", data = { emptyEventData | entityId = "person-id" }, metadata = { command = "Create person" }, version = Nothing }
+            , event =
+                { name = "Person created"
+                , data = Mutating { emptyEventData | entityId = "person-id" }
+                , metadata = { initiatorId = "Testing", command = "Create person" }
+                , version = Nothing
+                }
             , max = Just "3"
             }
 
@@ -449,8 +483,8 @@ testUpdate =
             , ts = Date.fromTime 0
             , event =
                 { name = "Person name added"
-                , data = { emptyEventData | entityId = "person-id", value = Just """{"first": "Joe", "middle": "", "last": "Mama"}""" }
-                , metadata = { command = "Add person name" }
+                , data = Mutating { emptyEventData | entityId = "person-id", value = Just """{"first": "Joe", "middle": "", "last": "Mama"}""" }
+                , metadata = { initiatorId = "Testing", command = "Add person name" }
                 , version = Nothing
                 }
             , max = Just "3"
@@ -461,8 +495,8 @@ testUpdate =
             , ts = Date.fromTime 0
             , event =
                 { name = "Person destroyed"
-                , data = { emptyEventData | entityId = "person-id" }
-                , metadata = { command = "Destroy person" }
+                , data = Mutating { emptyEventData | entityId = "person-id" }
+                , metadata = { initiatorId = "Testing", command = "Destroy person" }
                 , version = Nothing
                 }
             , max = Just "3"

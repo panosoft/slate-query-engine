@@ -1,4 +1,4 @@
-module Slate.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict, MessageDict, MessageDictEntry, AppEventMsg)
+module Slate.Engine.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict, MessageDict, MessageDictEntry, AppEventMsg)
 
 import String exposing (..)
 import Dict exposing (..)
@@ -8,8 +8,8 @@ import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Utils.Ops exposing (..)
-import Slate.Schema exposing (..)
-import Slate.Event exposing (EventRecord)
+import Slate.Common.Schema exposing (..)
+import Slate.Common.Event exposing (EventRecord)
 
 
 type alias AppEventMsg msg =
@@ -272,7 +272,7 @@ propertySchemaEventNames nodeQuery =
     in
         List.map (\p -> ( p.entitySchema, p.eventNames )) nodeQuery.schema.properties
             |> List.filter (fst >> isNothing >> not)
-            |> List.map (\( mes, ens ) -> ( mes |?> identity ?= SchemaReference nullSchema, ens ))
+            |> List.map (\( mes, ens ) -> ( mes |?> identity ?= SchemaReference mtEntitySchema, ens ))
             |> List.map unwrap
 
 

@@ -1,4 +1,4 @@
-module Slate.Engine
+module Slate.Engine.Engine
     exposing
         ( Config
         , Model
@@ -21,8 +21,8 @@ import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
 import DebugF exposing (..)
-import Slate.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
-import Slate.Event exposing (EventRecord, Event, eventRecordDecoder)
+import Slate.Engine.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
+import Slate.Common.Event exposing (EventRecord, Event, EventData(..), eventRecordDecoder)
 import Utils.Ops exposing (..)
 import Utils.Tuple exposing (..)
 import Postgres exposing (..)
@@ -360,17 +360,22 @@ processEvents config model queryStateId eventStrs =
                                                                                     ids =
                                                                                         Dict.get entityType queryState.ids ?= Set.empty
                                                                                 in
-                                                                                    event.data.referenceId
-                                                                                        |?> (\referenceId ->
-                                                                                                ( { queryState
-                                                                                                    | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId
-                                                                                                    , ids = Dict.insert entityType (Set.insert referenceId ids) queryState.ids
-                                                                                                    , maxIds = Dict.insert entityType entityMaxId queryState.maxIds
-                                                                                                  }
-                                                                                                , (msg eventRecord) :: msgs
-                                                                                                )
-                                                                                            )
-                                                                                        ?= (eventError eventStr msgs <| missingReferenceValue eventRecord)
+                                                                                    case event.data of
+                                                                                        Mutating eventData ->
+                                                                                            eventData.referenceId
+                                                                                                |?> (\referenceId ->
+                                                                                                        ( { queryState
+                                                                                                            | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId
+                                                                                                            , ids = Dict.insert entityType (Set.insert referenceId ids) queryState.ids
+                                                                                                            , maxIds = Dict.insert entityType entityMaxId queryState.maxIds
+                                                                                                          }
+                                                                                                        , (msg eventRecord) :: msgs
+                                                                                                        )
+                                                                                                    )
+                                                                                                ?= (eventError eventStr msgs <| missingReferenceValue eventRecord)
+
+                                                                                        NonMutating _ ->
+                                                                                            ( queryState, [] )
                                                                             )
                                                                         ?= ( { queryState | firstTemplateWithDataMaxId = firstTemplateWithDataMaxId }
                                                                            , (msg eventRecord) :: msgs
