@@ -1,4 +1,21 @@
-module Slate.Engine.Query exposing (NodeQuery, Query(..), query, buildQueryTemplate, parametricReplace, buildMessageDict, MessageDict, MessageDictEntry, AppEventMsg)
+module Slate.Engine.Query
+    exposing
+        ( NodeQuery
+        , Query(..)
+        , MsgDict
+        , MsgDictEntry
+        , EventTagger
+        , mtQuery
+        , buildQueryTemplate
+        , parametricReplace
+        , buildMsgDict
+        )
+
+{-|
+    Slate Query module.
+
+@docs NodeQuery , Query , MsgDict , MsgDictEntry , EventTagger , mtQuery , buildQueryTemplate , parametricReplace , buildMsgDict
+-}
 
 import String exposing (..)
 import Dict exposing (..)
@@ -12,38 +29,137 @@ import Slate.Common.Schema exposing (..)
 import Slate.Common.Event exposing (EventRecord)
 
 
-type alias AppEventMsg msg =
-    EventRecord -> msg
+---------------------------------------------------------------------------------------------------------
+-- PUBLIC API
+---------------------------------------------------------------------------------------------------------
 
 
+{-|
+    A query that can be used at any node in Query.
+-}
 type alias NodeQuery msg =
     { properties : Maybe (List String)
     , criteria : Maybe String
     , schema : EntitySchema
-    , msg : AppEventMsg msg
+    , tagger : EventTagger msg
     }
 
 
+{-|
+    A Query definition.
+-}
 type Query msg
     = Node (NodeQuery msg) (List (Query msg))
     | Leaf (NodeQuery msg)
 
 
-emptySchema : EntitySchema
-emptySchema =
-    { type_ = ""
-    , eventNames = []
-    , properties = []
+{-|
+    MsgDict entry.
+-}
+type alias MsgDictEntry msg =
+    { msg : EventTagger msg
+    , maybeEntityType : Maybe String
     }
 
 
-query : AppEventMsg msg -> NodeQuery msg
-query msg =
+{-|
+    Msg Dictionary that relates the Slate Event Name to the taggers in the query.
+-}
+type alias MsgDict msg =
+    Dict String (MsgDictEntry msg)
+
+
+{-|
+    Msg constructor that takes a EventRecord.
+-}
+type alias EventTagger msg =
+    EventRecord -> msg
+
+
+{-|
+    Convenience function for defining queries.
+-}
+mtQuery : EventTagger msg -> NodeQuery msg
+mtQuery unhandledSpecifiedTagger =
     { properties = Nothing
     , criteria = Nothing
-    , schema = emptySchema
-    , msg = msg
+    , schema = mtEntitySchema
+    , tagger = unhandledSpecifiedTagger
     }
+
+
+{-|
+    Build Query Template from a query.
+-}
+buildQueryTemplate : Query msg -> Result (List String) (List String)
+buildQueryTemplate query =
+    let
+        errors =
+            validQuery query
+    in
+        case errors == [] of
+            True ->
+                let
+                    parentChildRelationships =
+                        parentChild query
+                in
+                    Ok <| buildSqlTemplate (depthDict query) parentChildRelationships
+
+            False ->
+                Err errors
+
+
+{-|
+    Parametric replacement of a template where the `prefix` and `suffix` define the delimiters of the parameters.
+-}
+parametricReplace : String -> String -> List ( String, String ) -> String -> String
+parametricReplace prefix suffix replacements template =
+    let
+        -- l =
+        --     Debug.crash <| toString <| ( prefix, suffix, replacements, template )
+        buildRegex param =
+            Regex.escape <| prefix ++ param ++ suffix
+    in
+        List.foldl (\( param, value ) template -> RegexU.replaceAll (buildRegex param) value template) template replacements
+
+
+{-|
+    Build a Msg Dictionary that relates the Slate Event Name to the taggers in the query.
+-}
+buildMsgDict : Query msg -> MsgDict msg
+buildMsgDict query =
+    let
+        propertyEntityType : EntitySchemaReference -> String
+        propertyEntityType schemaRef =
+            case schemaRef of
+                SchemaReference schema ->
+                    schema.type_
+
+        eventNames : EntitySchema -> List ( Maybe String, String )
+        eventNames schema =
+            schema.properties
+                |> List.map (\property -> List.map ((,) <| property.entitySchema |?> propertyEntityType) property.eventNames)
+                |> List.concat
+                |> List.append (List.map ((,) Nothing) schema.eventNames)
+
+        addToDict nodeQuery dict =
+            List.foldl (\( maybeEntityType, name ) dict -> Dict.insert name (MsgDictEntry nodeQuery.tagger maybeEntityType) dict) dict <| eventNames nodeQuery.schema
+
+        build query dict =
+            case query of
+                Node nodeQuery children ->
+                    List.foldl (\child dict -> build child dict) (addToDict nodeQuery dict) children
+
+                Leaf nodeQuery ->
+                    addToDict nodeQuery dict
+    in
+        build query Dict.empty
+
+
+
+---------------------------------------------------------------------------------------------------------
+-- PRIVATE
+---------------------------------------------------------------------------------------------------------
 
 
 depthDict : Query msg -> Dict Int (List (NodeQuery msg))
@@ -120,7 +236,7 @@ tupToArgs f ( a1, a2 ) =
 
 propertiesCheck : NodeQuery msg -> List String
 propertiesCheck nodeQuery =
-    case nodeQuery.schema /= emptySchema of
+    case nodeQuery.schema /= mtEntitySchema of
         True ->
             let
                 queryProperties =
@@ -249,17 +365,6 @@ entityTemplate =
 """
 
 
-parametricReplace : String -> String -> List ( String, String ) -> String -> String
-parametricReplace prefix suffix replacements template =
-    let
-        -- l =
-        --     Debug.crash <| toString <| ( prefix, suffix, replacements, template )
-        buildRegex param =
-            Regex.escape <| prefix ++ param ++ suffix
-    in
-        List.foldl (\( param, value ) template -> RegexU.replaceAll (buildRegex param) value template) template replacements
-
-
 
 -- List.foldl (\( param, value ) template -> RegexU.replace All (buildRegex param) (RegexU.simpleReplacer value) template) template replacements
 
@@ -301,46 +406,6 @@ getEventNames parent children =
 templateReplace : List ( String, String ) -> String -> String
 templateReplace =
     parametricReplace "{" "}"
-
-
-type alias MessageDictEntry msg =
-    { msg : AppEventMsg msg
-    , maybeEntityType : Maybe String
-    }
-
-
-type alias MessageDict msg =
-    Dict String (MessageDictEntry msg)
-
-
-buildMessageDict : Query msg -> MessageDict msg
-buildMessageDict query =
-    let
-        propertyEntityType : EntitySchemaReference -> String
-        propertyEntityType schemaRef =
-            case schemaRef of
-                SchemaReference schema ->
-                    schema.type_
-
-        eventNames : EntitySchema -> List ( Maybe String, String )
-        eventNames schema =
-            schema.properties
-                |> List.map (\property -> List.map ((,) <| property.entitySchema |?> propertyEntityType) property.eventNames)
-                |> List.concat
-                |> List.append (List.map ((,) Nothing) schema.eventNames)
-
-        addToDict nodeQuery dict =
-            List.foldl (\( maybeEntityType, name ) dict -> Dict.insert name (MessageDictEntry nodeQuery.msg maybeEntityType) dict) dict <| eventNames nodeQuery.schema
-
-        build query dict =
-            case query of
-                Node nodeQuery children ->
-                    List.foldl (\child dict -> build child dict) (addToDict nodeQuery dict) children
-
-                Leaf nodeQuery ->
-                    addToDict nodeQuery dict
-    in
-        build query Dict.empty
 
 
 buildEntityTemplate : Dict String (List (NodeQuery msg)) -> NodeQuery msg -> String
@@ -393,21 +458,3 @@ buildSqlTemplate depthDict parentChild =
                 (depth > 0) ?! ( \_ -> build (depth - 1) newTemplates, \_ -> newTemplates )
     in
         build (maxDepth - 1) []
-
-
-buildQueryTemplate : Query msg -> Result (List String) (List String)
-buildQueryTemplate query =
-    let
-        errors =
-            validQuery query
-    in
-        case errors == [] of
-            True ->
-                let
-                    parentChildRelationships =
-                        parentChild query
-                in
-                    Ok <| buildSqlTemplate (depthDict query) parentChildRelationships
-
-            False ->
-                Err errors

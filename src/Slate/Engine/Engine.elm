@@ -1,17 +1,26 @@
 module Slate.Engine.Engine
     exposing
-        ( Config
+        ( QueryStateId
+        , Config
         , Model
         , Msg
-        , update
         , initModel
+        , update
         , executeQuery
         , refreshQuery
+        , disposeQuery
         , importQueryState
         , exportQueryState
         )
 
+{-|
+    Slate Query Engine.
+
+@docs QueryStateId, Config , Model , Msg , initModel , update , executeQuery , refreshQuery , disposeQuery , importQueryState , exportQueryState
+-}
+
 import String exposing (..)
+import StringUtils exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
 import Json.Decode as JD exposing (..)
@@ -21,32 +30,332 @@ import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
 import DebugF exposing (..)
-import Slate.Engine.Query exposing (Query(..), MessageDict, MessageDictEntry, AppEventMsg, buildQueryTemplate, buildMessageDict, parametricReplace)
+import Slate.Engine.Query exposing (Query(..), MsgDict, MsgDictEntry, buildQueryTemplate, buildMsgDict, parametricReplace)
 import Slate.Common.Event exposing (EventRecord, Event, EventData(..), eventRecordDecoder)
+import Slate.Common.Db exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Tuple exposing (..)
+import Utils.Error exposing (..)
+import Utils.Log exposing (..)
 import Postgres exposing (..)
+import ParentChildUpdate
+import Retry exposing (FailureTagger)
 
 
-{-| - TODO change this !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+---------------------------------------------------------------------------------------------------------
+-- PUBLIC API
+---------------------------------------------------------------------------------------------------------
+
+
+{-|
+    QueryState id.
 -}
-queryBatchSize : Int
-queryBatchSize =
-    2
+type alias QueryStateId =
+    Int
 
 
-type alias ErrorMsg msg =
-    ( Int, String ) -> msg
+{-|
+    Slate Engine configuration.
+-}
+type alias Config msg =
+    { logTagger : ( LogLevel, ( QueryStateId, String ) ) -> msg
+    , errorTagger : ( ErrorType, ( QueryStateId, String ) ) -> msg
+    , eventProcessingErrorTagger : ( String, String ) -> msg
+    , completionTagger : QueryStateId -> msg
+    , routerTagger : Msg -> msg
+    , queryBatchSize : Int
+    }
 
 
-type alias EventProcessingErrorMsg msg =
-    ( String, String ) -> msg
+{-|
+    Engine Model.
+-}
+type alias Model msg =
+    { nextId : QueryStateId
+    , queryStates : Dict QueryStateId (QueryState msg)
+    , retryModel : Retry.Model Msg
+    }
+
+
+{-|
+    Engine Msg.
+-}
+type Msg
+    = Nop
+    | ConnectError QueryStateId ( ConnectionId, String )
+    | Connect QueryStateId ConnectionId
+    | ConnectionLost QueryStateId ( ConnectionId, String )
+    | DisconnectError QueryStateId ( ConnectionId, String )
+    | Disconnect QueryStateId ConnectionId
+    | Events QueryStateId ( ConnectionId, List String )
+    | QueryError QueryStateId ( ConnectionId, String )
+    | RetryConnectCmd Int Msg (Cmd Msg)
+    | RetryModule (Retry.Msg Msg)
+
+
+{-|
+    Initial model for the Engine.
+-}
+initModel : Model msg
+initModel =
+    { nextId = 0
+    , queryStates = Dict.empty
+    , retryModel = Retry.initModel
+    }
+
+
+{-|
+    Engine's update function.
+-}
+update : Config msg -> Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
+update config msg model =
+    let
+        logMsg queryStateId message =
+            config.logTagger ( LogLevelInfo, ( queryStateId, message ) )
+
+        nonFatal queryStateId error =
+            config.errorTagger ( NonFatalError, ( queryStateId, error ) )
+
+        fatal queryStateId error =
+            config.errorTagger ( FatalError, ( queryStateId, error ) )
+
+        updateRetry =
+            ParentChildUpdate.updateChildParent (Retry.update retryConfig) (update config) .retryModel RetryModule (\model retryModel -> { model | retryModel = retryModel })
+    in
+        case msg of
+            Nop ->
+                ( model ! [], [] )
+
+            ConnectError queryStateId ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.log "ConnectError" ( queryStateId, connectionId, error )
+                in
+                    connectionFailure config model queryStateId error
+
+            ConnectionLost queryStateId ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.log "ConnectLost" ( queryStateId, connectionId, error )
+                in
+                    connectionFailure config model queryStateId error
+
+            Connect queryStateId connectionId ->
+                let
+                    l =
+                        Debug.log "Connect" ( queryStateId, connectionId )
+
+                    queryState =
+                        getQueryState queryStateId model
+
+                    ( newModel, cmd ) =
+                        startQuery config model queryStateId connectionId
+                in
+                    ( newModel ! [ cmd ], [] )
+
+            DisconnectError queryStateId ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.log "DisconnectError" ( queryStateId, connectionId, error )
+
+                    queryState =
+                        getQueryState queryStateId model
+                in
+                    connectionFailure config model queryStateId error
+
+            Disconnect queryStateId connectionId ->
+                let
+                    l =
+                        Debug.log "Disconnect" ( queryStateId, connectionId )
+                in
+                    ( model ! [], [] )
+
+            Events queryStateId ( connectionId, eventStrs ) ->
+                let
+                    l =
+                        DebugF.log "Event" eventStrs
+
+                    ll =
+                        DebugF.log "Model" model
+
+                    ( updatedModel, msgs ) =
+                        processEvents config model queryStateId eventStrs
+
+                    queryState =
+                        getQueryState queryStateId model
+
+                    goodQueryState =
+                        queryState.badQueryState == False
+
+                    startOfQuery =
+                        eventStrs == []
+
+                    ( finalModel, cmd ) =
+                        case goodQueryState of
+                            True ->
+                                case startOfQuery of
+                                    True ->
+                                        startQuery config updatedModel queryStateId connectionId
+
+                                    False ->
+                                        ( updatedModel, nextQuery queryStateId connectionId )
+
+                            False ->
+                                model ! []
+
+                    {- handle end of query -}
+                    endOfQuery =
+                        cmd == Cmd.none
+
+                    ( finalMsgs, finalCmd ) =
+                        endOfQuery ? ( ( List.append msgs [ config.completionTagger queryStateId ], Postgres.disconnect (DisconnectError queryStateId) (Disconnect queryStateId) connectionId False ), ( msgs, cmd ) )
+                in
+                    ( finalModel ! [ finalCmd ], finalMsgs )
+
+            QueryError queryStateId ( connectionId, error ) ->
+                let
+                    l =
+                        Debug.log "QueryError" ( queryStateId, connectionId, error )
+
+                    queryState =
+                        getQueryState queryStateId model
+                in
+                    connectionFailure config model queryStateId error
+
+            RetryConnectCmd retryCount failureMsg cmd ->
+                let
+                    parentMsg =
+                        case failureMsg of
+                            ConnectError queryStateId ( connectionId, error ) ->
+                                nonFatal queryStateId ("Connection Error:" +-+ error +-+ "Connection Retry:" +-+ retryCount)
+
+                            _ ->
+                                Debug.crash "BUG -- Should never get here"
+                in
+                    ( model ! [ cmd ], [ parentMsg ] )
+
+            RetryModule msg ->
+                updateRetry msg model
+
+
+{-|
+   Execute Slate Query.
+-}
+executeQuery : Config msg -> DbConnectionInfo -> Model msg -> Maybe String -> Query msg -> List String -> Result (List String) ( Model msg, Cmd msg, Int )
+executeQuery config dbInfo model additionalCriteria query rootIds =
+    let
+        templateResult =
+            buildQueryTemplate query
+    in
+        templateResult
+            |??>
+                (\templates ->
+                    let
+                        queryStateId =
+                            model.nextId
+
+                        rootEntity =
+                            case query of
+                                Node nodeQuery _ ->
+                                    nodeQuery.schema.type_
+
+                                Leaf nodeQuery ->
+                                    nodeQuery.schema.type_
+
+                        queryState =
+                            { rootEntity = rootEntity
+                            , badQueryState = False
+                            , currentTemplate = 0
+                            , templates = templates
+                            , rootIds = rootIds
+                            , ids = Dict.empty
+                            , additionalCriteria = additionalCriteria
+                            , maxIds = Dict.empty
+                            , firstTemplateWithDataMaxId = -1
+                            , msgDict = buildMsgDict query
+                            , first = True
+                            }
+
+                        ( newModel, cmd ) =
+                            connectToDb config dbInfo { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates } queryStateId
+                    in
+                        ( newModel, cmd, queryStateId )
+                )
+
+
+{-|
+    Refresh an existing Slate Query, i.e. process events since the last `executeQuery` or `refreshQuery`.
+-}
+refreshQuery : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> ( Model msg, Cmd msg )
+refreshQuery config dbInfo model queryStateId =
+    let
+        queryState =
+            getQueryState queryStateId model
+
+        newQueryState =
+            { queryState | currentTemplate = 0, firstTemplateWithDataMaxId = -1 }
+
+        ( newModel, cmd ) =
+            connectToDb config dbInfo { model | queryStates = Dict.insert queryStateId newQueryState model.queryStates } queryStateId
+    in
+        ( newModel, cmd )
+
+
+{-|
+    Stop managing specified `Query`. Afterwards, the `queryStateId` will no longer be valid.
+-}
+disposeQuery : Model msg -> QueryStateId -> Model msg
+disposeQuery model queryStateId =
+    { model | queryStates = Dict.remove queryStateId model.queryStates }
+
+
+{-|
+    Create a JSON String for saving the specified `QueryState`.
+
+    This is useful for caching a query or saving for a subsequent execution of your App.
+-}
+exportQueryState : Model msg -> QueryStateId -> String
+exportQueryState model queryStateId =
+    let
+        maybeQueryState =
+            Dict.get queryStateId model.queryStates
+    in
+        maybeQueryState
+            |?> (\queryState -> queryStateEncode queryState)
+            ?= ""
+
+
+{-|
+    Recreate a previously saved `QueryState` from the specified JSON String.
+-}
+importQueryState : Query msg -> Model msg -> String -> Result String (Model msg)
+importQueryState query model json =
+    let
+        templateResult =
+            buildQueryTemplate query
+    in
+        (queryStateDecode (buildMsgDict query) json)
+            |??>
+                (\queryState ->
+                    let
+                        queryStateId =
+                            model.nextId
+                    in
+                        { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
+                )
+
+
+
+---------------------------------------------------------------------------------------------------------
+-- PRIVATE
+---------------------------------------------------------------------------------------------------------
+
+
+retryConfig : Retry.Config
+retryConfig =
+    { retryMax = 3
+    , delayNext = Retry.constantDelay 5000
+    }
 
 
 type alias QueryState msg =
@@ -60,48 +369,47 @@ type alias QueryState msg =
     , additionalCriteria : Maybe String
     , maxIds : Dict String Int
     , firstTemplateWithDataMaxId : Int
-    , messageDict : MessageDict msg
+    , msgDict : MsgDict msg
     }
 
 
-type alias Config msg =
-    { host : String
-    , port_ : Int
-    , database : String
-    , user : String
-    , password : String
-    , errorMsg : ErrorMsg msg
-    , eventProcessingErrorMsg : EventProcessingErrorMsg msg
-    , completionMsg : Int -> msg
-    , tagger : Msg -> msg
-    }
+queryStateEncode : QueryState msg -> String
+queryStateEncode queryState =
+    JE.encode 0 <|
+        JE.object
+            [ ( "first", JE.bool queryState.first )
+            , ( "rootEntity", JE.string queryState.rootEntity )
+            , ( "badQueryState", JE.bool queryState.badQueryState )
+            , ( "currentTemplate", JE.int queryState.currentTemplate )
+            , ( "templates", JE.list <| List.map JE.string queryState.templates )
+            , ( "rootIds", JE.list <| List.map JE.string queryState.rootIds )
+            , ( "ids", JsonU.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
+            , ( "additionalCriteria", JsonU.encMaybe JE.string queryState.additionalCriteria )
+            , ( "maxIds", JsonU.encDict JE.string JE.int queryState.maxIds )
+            , ( "firstTemplateWithDataMaxId", JE.int queryState.firstTemplateWithDataMaxId )
+            ]
 
 
-type alias Model msg =
-    { nextId : Int
-    , queryStates : Dict Int (QueryState msg)
-    }
+queryStateDecode : MsgDict msg -> String -> Result String (QueryState msg)
+queryStateDecode msgDict json =
+    JD.decodeString
+        ((JD.succeed QueryState)
+            <|| ("first" := JD.bool)
+            <|| ("rootEntity" := JD.string)
+            <|| ("badQueryState" := JD.bool)
+            <|| ("currentTemplate" := JD.int)
+            <|| ("templates" := JD.list JD.string)
+            <|| ("rootIds" := JD.list JD.string)
+            <|| ("ids" := JsonU.decConvertDict Set.fromList JD.string (JD.list JD.string))
+            <|| ("additionalCriteria" := JD.maybe JD.string)
+            <|| ("maxIds" := JsonU.decDict JD.string JD.int)
+            <|| ("firstTemplateWithDataMaxId" := JD.int)
+            <|| JD.succeed msgDict
+        )
+        json
 
 
-initModel : Model msg
-initModel =
-    { nextId = 0
-    , queryStates = Dict.empty
-    }
-
-
-type Msg
-    = Nop
-    | ConnectError Int ( Int, String )
-    | Connect Int Int
-    | ConnectionLost Int ( Int, String )
-    | DisconnectError Int ( Int, String )
-    | Disconnect Int Int
-    | Events Int ( Int, List String )
-    | QueryError Int ( Int, String )
-
-
-getQueryState : Int -> Model msg -> QueryState msg
+getQueryState : QueryStateId -> Model msg -> QueryState msg
 getQueryState queryStateId model =
     case Dict.get queryStateId model.queryStates of
         Just queryState ->
@@ -111,116 +419,13 @@ getQueryState queryStateId model =
             Debug.crash <| "Query Id: " ++ (toString queryStateId) ++ " is not in model: " ++ (toString model)
 
 
-connectionFailure : Config msg -> Model msg -> Int -> String -> ( ( Model msg, Cmd Msg ), List msg )
+connectionFailure : Config msg -> Model msg -> QueryStateId -> String -> ( ( Model msg, Cmd Msg ), List msg )
 connectionFailure config model queryStateId error =
     let
         queryState =
             getQueryState queryStateId model
     in
-        ( model ! [], [ config.errorMsg <| ( queryStateId, error ) ] )
-
-
-update : Config msg -> Msg -> Model msg -> ( ( Model msg, Cmd Msg ), List msg )
-update config msg model =
-    case msg of
-        Nop ->
-            ( model ! [], [] )
-
-        ConnectError queryStateId ( connectionId, error ) ->
-            let
-                l =
-                    Debug.log "ConnectError" ( queryStateId, connectionId, error )
-            in
-                connectionFailure config model queryStateId error
-
-        ConnectionLost queryStateId ( connectionId, error ) ->
-            let
-                l =
-                    Debug.log "ConnectLost" ( queryStateId, connectionId, error )
-            in
-                connectionFailure config model queryStateId error
-
-        Connect queryStateId connectionId ->
-            let
-                l =
-                    Debug.log "Connect" ( queryStateId, connectionId )
-
-                queryState =
-                    getQueryState queryStateId model
-
-                ( newModel, cmd ) =
-                    startQuery model queryStateId connectionId
-            in
-                ( newModel ! [ cmd ], [] )
-
-        DisconnectError queryStateId ( connectionId, error ) ->
-            let
-                l =
-                    Debug.log "DisconnectError" ( queryStateId, connectionId, error )
-
-                queryState =
-                    getQueryState queryStateId model
-            in
-                connectionFailure config model queryStateId error
-
-        Disconnect queryStateId connectionId ->
-            let
-                l =
-                    Debug.log "Disconnect" ( queryStateId, connectionId )
-            in
-                ( model ! [], [] )
-
-        Events queryStateId ( connectionId, eventStrs ) ->
-            let
-                l =
-                    DebugF.log "Event" eventStrs
-
-                ll =
-                    DebugF.log "Model" model
-
-                ( updatedModel, msgs ) =
-                    processEvents config model queryStateId eventStrs
-
-                queryState =
-                    getQueryState queryStateId model
-
-                goodQueryState =
-                    queryState.badQueryState == False
-
-                startOfQuery =
-                    eventStrs == []
-
-                ( finalModel, cmd ) =
-                    case goodQueryState of
-                        True ->
-                            case startOfQuery of
-                                True ->
-                                    startQuery updatedModel queryStateId connectionId
-
-                                False ->
-                                    ( updatedModel, nextQuery queryStateId connectionId )
-
-                        False ->
-                            model ! []
-
-                {- handle end of query -}
-                endOfQuery =
-                    cmd == Cmd.none
-
-                ( finalMsgs, finalCmd ) =
-                    endOfQuery ? ( ( List.append msgs [ config.completionMsg queryStateId ], Postgres.disconnect (DisconnectError queryStateId) (Disconnect queryStateId) connectionId False ), ( msgs, cmd ) )
-            in
-                ( finalModel ! [ finalCmd ], finalMsgs )
-
-        QueryError queryStateId ( connectionId, error ) ->
-            let
-                l =
-                    Debug.log "QueryError" ( queryStateId, connectionId, error )
-
-                queryState =
-                    getQueryState queryStateId model
-            in
-                connectionFailure config model queryStateId error
+        ( model ! [], [ config.errorTagger ( NonFatalError, ( queryStateId, error ) ) ] )
 
 
 templateReplace : List ( String, String ) -> String -> String
@@ -233,8 +438,8 @@ quoteList =
     List.map (\s -> "'" ++ s ++ "'")
 
 
-startQuery : Model msg -> Int -> Int -> ( Model msg, Cmd Msg )
-startQuery model queryStateId connectionId =
+startQuery : Config msg -> Model msg -> QueryStateId -> ConnectionId -> ( Model msg, Cmd Msg )
+startQuery config model queryStateId connectionId =
     let
         queryState =
             getQueryState queryStateId model
@@ -282,11 +487,8 @@ startQuery model queryStateId connectionId =
 
                         replace entityType ids =
                             let
-                                noIds =
-                                    ids == []
-
                                 entityIdClause =
-                                    noIds ? ( "1=1", "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")" )
+                                    (ids == []) ? ( "1=1", "event #>> '{data, entityId}' IN (" ++ (String.join ", " <| quoteList ids) ++ ")" )
                             in
                                 templateReplace [ ( entityType ++ "-entityIds", entityIdClause ) ]
 
@@ -300,26 +502,26 @@ startQuery model queryStateId connectionId =
                             DebugF.log "sql" sql
                     in
                         ( updateQueryState model { queryState | currentTemplate = queryState.currentTemplate + 1 }
-                        , Postgres.query (QueryError queryStateId) (Events queryStateId) connectionId sql queryBatchSize
+                        , Postgres.query (QueryError queryStateId) (Events queryStateId) connectionId sql config.queryBatchSize
                         )
                 )
             ?= ( updateQueryState model { queryState | first = False }, Cmd.none )
 
 
-processEvents : Config msg -> Model msg -> Int -> List String -> ( Model msg, List msg )
+processEvents : Config msg -> Model msg -> QueryStateId -> List String -> ( Model msg, List msg )
 processEvents config model queryStateId eventStrs =
     let
         queryState =
             getQueryState queryStateId model
 
         eventNotInDict =
-            "Event not in message dictionary: " ++ (toString queryState.messageDict)
+            "Event not in message dictionary: " ++ (toString queryState.msgDict)
 
         missingReferenceValue event =
             "Event referenceId is missing: " ++ (toString event)
 
         eventError eventStr msgs error =
-            ( { queryState | badQueryState = True }, config.eventProcessingErrorMsg ( eventStr, error ) :: msgs )
+            ( { queryState | badQueryState = True }, config.eventProcessingErrorTagger ( eventStr, error ) :: msgs )
 
         ( newQueryState, msgs ) =
             List.foldl
@@ -341,7 +543,7 @@ processEvents config model queryStateId eventStrs =
                                         resultRecordId
                                             |??>
                                                 (\recordId ->
-                                                    Dict.get event.name queryState.messageDict
+                                                    Dict.get event.name queryState.msgDict
                                                         |?> (\{ msg, maybeEntityType } ->
                                                                 let
                                                                     firstTemplateWithDataMaxId =
@@ -393,141 +595,29 @@ processEvents config model queryStateId eventStrs =
         ( { model | queryStates = Dict.insert queryStateId newQueryState model.queryStates }, List.reverse msgs )
 
 
-nextQuery : Int -> Int -> Cmd Msg
+nextQuery : QueryStateId -> ConnectionId -> Cmd Msg
 nextQuery queryStateId connectionId =
     Postgres.moreQueryResults (QueryError queryStateId) (Events queryStateId) connectionId
 
 
-connectToDb : Config msg -> Int -> Cmd msg
-connectToDb config queryStateId =
-    Postgres.connect (config.tagger << (ConnectError queryStateId)) (config.tagger << (Connect queryStateId)) (config.tagger << (ConnectionLost queryStateId)) 15000 config.host config.port_ config.database config.user config.password
+connectToDbCmd : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> FailureTagger ( ConnectionId, String ) Msg -> Cmd Msg
+connectToDbCmd config dbInfo model queryStateId failureTagger =
+    Postgres.connect
+        failureTagger
+        (Connect queryStateId)
+        (ConnectionLost queryStateId)
+        dbInfo.timeout
+        dbInfo.host
+        dbInfo.port_
+        dbInfo.database
+        dbInfo.user
+        dbInfo.password
 
 
-
--- Public API
-
-
-executeQuery : Config msg -> Model msg -> Maybe String -> Query msg -> List String -> Result (List String) ( Model msg, Cmd msg, Int )
-executeQuery config model additionalCriteria query rootIds =
+connectToDb : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> ( Model msg, Cmd msg )
+connectToDb config dbInfo model queryStateId =
     let
-        templateResult =
-            buildQueryTemplate query
+        ( retryModel, retryCmd ) =
+            Retry.retry model.retryModel RetryModule (ConnectError queryStateId) RetryConnectCmd (connectToDbCmd config dbInfo model queryStateId)
     in
-        templateResult
-            |??>
-                (\templates ->
-                    let
-                        queryStateId =
-                            model.nextId
-
-                        rootEntity =
-                            case query of
-                                Node nodeQuery _ ->
-                                    nodeQuery.schema.type_
-
-                                Leaf nodeQuery ->
-                                    nodeQuery.schema.type_
-
-                        queryState =
-                            { rootEntity = rootEntity
-                            , badQueryState = False
-                            , currentTemplate = 0
-                            , templates = templates
-                            , rootIds = rootIds
-                            , ids = Dict.empty
-                            , additionalCriteria = additionalCriteria
-                            , maxIds = Dict.empty
-                            , firstTemplateWithDataMaxId = -1
-                            , messageDict = buildMessageDict query
-                            , first = True
-                            }
-
-                        cmd =
-                            connectToDb config queryStateId
-                    in
-                        ( { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }, cmd, queryStateId )
-                )
-
-
-refreshQuery : Config msg -> Model msg -> Int -> ( Model msg, Cmd msg )
-refreshQuery config model queryStateId =
-    let
-        queryState =
-            getQueryState queryStateId model
-
-        newQueryState =
-            { queryState | currentTemplate = 0, firstTemplateWithDataMaxId = -1 }
-
-        newModel =
-            { model | queryStates = Dict.insert queryStateId newQueryState model.queryStates }
-    in
-        ( newModel, connectToDb config queryStateId )
-
-
-closeQuery : Model msg -> Int -> Model msg
-closeQuery model queryStateId =
-    { model | queryStates = Dict.remove queryStateId model.queryStates }
-
-
-queryStateEncode : QueryState msg -> String
-queryStateEncode queryState =
-    JE.encode 0 <|
-        JE.object
-            [ ( "first", JE.bool queryState.first )
-            , ( "rootEntity", JE.string queryState.rootEntity )
-            , ( "badQueryState", JE.bool queryState.badQueryState )
-            , ( "currentTemplate", JE.int queryState.currentTemplate )
-            , ( "templates", JE.list <| List.map JE.string queryState.templates )
-            , ( "rootIds", JE.list <| List.map JE.string queryState.rootIds )
-            , ( "ids", JsonU.encDict JE.string (JE.list << List.map JE.string << Set.toList) queryState.ids )
-            , ( "additionalCriteria", JsonU.encMaybe JE.string queryState.additionalCriteria )
-            , ( "maxIds", JsonU.encDict JE.string JE.int queryState.maxIds )
-            , ( "firstTemplateWithDataMaxId", JE.int queryState.firstTemplateWithDataMaxId )
-            ]
-
-
-exportQueryState : Model msg -> Int -> String
-exportQueryState model queryStateId =
-    let
-        maybeQueryState =
-            Dict.get queryStateId model.queryStates
-    in
-        maybeQueryState
-            |?> (\queryState -> queryStateEncode queryState)
-            ?= ""
-
-
-queryStateDecode : MessageDict msg -> String -> Result String (QueryState msg)
-queryStateDecode messageDict json =
-    JD.decodeString
-        ((JD.succeed QueryState)
-            <|| ("first" := JD.bool)
-            <|| ("rootEntity" := JD.string)
-            <|| ("badQueryState" := JD.bool)
-            <|| ("currentTemplate" := JD.int)
-            <|| ("templates" := JD.list JD.string)
-            <|| ("rootIds" := JD.list JD.string)
-            <|| ("ids" := JsonU.decConvertDict Set.fromList JD.string (JD.list JD.string))
-            <|| ("additionalCriteria" := JD.maybe JD.string)
-            <|| ("maxIds" := JsonU.decDict JD.string JD.int)
-            <|| ("firstTemplateWithDataMaxId" := JD.int)
-            <|| JD.succeed messageDict
-        )
-        json
-
-
-importQueryState : Query msg -> Model msg -> String -> Result String (Model msg)
-importQueryState query model json =
-    let
-        templateResult =
-            buildQueryTemplate query
-    in
-        (queryStateDecode (buildMessageDict query) json)
-            |??>
-                (\queryState ->
-                    let
-                        queryStateId =
-                            model.nextId
-                    in
-                        { model | nextId = model.nextId + 1, queryStates = Dict.insert queryStateId queryState model.queryStates }
-                )
+        { model | retryModel = retryModel } ! [ Cmd.map config.routerTagger retryCmd ]

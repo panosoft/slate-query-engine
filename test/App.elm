@@ -11,33 +11,36 @@ import Slate.TestEntities.PersonEntity as PersonEntity exposing (EntirePerson, E
 import Slate.TestEntities.AddressEntity as AddressEntity exposing (EntireAddress, EntireAddressDict, defaultEntireAddress)
 import Slate.TestEntities.PersonSchema as PersonSchema exposing (..)
 import Slate.TestEntities.AddressSchema as AddressSchema exposing (..)
-import Utils.Ops exposing (..)
 import Slate.Engine.Query exposing (..)
 import Slate.Engine.Engine as Engine exposing (..)
 import Slate.Common.Event exposing (..)
-import Slate.Common.Reference exposing (..)
 import Slate.Common.Projection exposing (..)
-import Slate.Common.Mutation exposing (..)
-import Slate.Common.EntityUtils exposing (..)
-import Date exposing (Date)
+import Slate.Common.Entity exposing (..)
+import Slate.Common.Mutation as Mutation exposing (CascadingDeletionTaggers)
+import Slate.Common.Db exposing (..)
+import Utils.Ops exposing (..)
+import Utils.Error exposing (..)
+import Utils.Log exposing (..)
 import Postgres exposing (..)
-import DebugF exposing (..)
 import ParentChildUpdate exposing (..)
 
 
 port node : Float -> Cmd msg
 
 
+{-|
+    Avoid infinitely recursive definition in Model.
+-}
 type WrappedModel
     = WrappedModel Model
 
 
 type alias PersonDict =
-    Dict EntityReference Person
+    EntityDict Person
 
 
 type alias AddressDict =
-    Dict EntityReference Address
+    EntityDict Address
 
 
 type alias Model =
@@ -46,7 +49,7 @@ type alias Model =
     , persons : PersonDict
     , addresses : AddressDict
     , engineModel : Engine.Model Msg
-    , queries : Dict Int (WrappedModel -> Result (List String) WrappedModel)
+    , queries : Dict Int (WrappedModel -> Result (ProjectionErrors) WrappedModel)
     , didRefresh : Bool
     , listenConnectionId : Maybe Int
     }
@@ -70,13 +73,13 @@ type alias Entities =
 
 type Msg
     = Nop
-      -- | Tick Float
     | SlateEngine Engine.Msg
     | EventError EventRecord ( Int, String )
-    | EngineError ( Int, String )
+    | EngineLog ( LogLevel, ( Int, String ) )
+    | EngineError ( ErrorType, ( Int, String ) )
     | EventProcessingComplete Int
     | MutationError String String
-    | MissingMutationMsg EventRecord
+    | UnspecifiedMutationInQuery EventRecord
     | MutatePerson EventRecord
     | MutateAddress EventRecord
     | EventProcessingError ( String, String )
@@ -88,17 +91,27 @@ type Msg
     | ListenEvent ( Int, String, String )
 
 
-engineConfig : Engine.Config Msg
-engineConfig =
+engineDBInfo : DbConnectionInfo
+engineDBInfo =
     { host = "postgresDBServer"
     , port_ = 5432
     , database = "test"
     , user = "charles"
     , password = "testpassword"
-    , errorMsg = EngineError
-    , eventProcessingErrorMsg = EventProcessingError
-    , completionMsg = EventProcessingComplete
-    , tagger = SlateEngine
+    , timeout = 15000
+    }
+
+
+engineConfig : Engine.Config Msg
+engineConfig =
+    { logTagger = EngineLog
+    , errorTagger = EngineError
+    , eventProcessingErrorTagger = EventProcessingError
+    , completionTagger = EventProcessingComplete
+    , routerTagger = SlateEngine
+    , queryBatchSize =
+        2
+        -- TODO CHANGE THIS !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     }
 
 
@@ -117,12 +130,12 @@ initModel =
 
 executeQuery : Engine.Model Msg -> Maybe String -> Query Msg -> List String -> Result (List String) ( Engine.Model Msg, Cmd Msg, Int )
 executeQuery =
-    Engine.executeQuery engineConfig
+    Engine.executeQuery engineConfig engineDBInfo
 
 
 refreshQuery : Engine.Model Msg -> Int -> ( Engine.Model Msg, Cmd Msg )
 refreshQuery =
-    Engine.refreshQuery engineConfig
+    Engine.refreshQuery engineConfig engineDBInfo
 
 
 init : ( Model, Cmd Msg )
@@ -133,19 +146,21 @@ init =
 
         -- executeQuery (Just "id NOT IN (3, 7)") personQuery [ "123", "456" ]
     in
-        case result of
-            Ok ( engineModel, cmd, queryId ) ->
-                { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPersonQuery initModel.queries }
-                    ! [ cmd
-                      , Postgres.connect ConnectError Connect ConnectionLost 15000 engineConfig.host engineConfig.port_ engineConfig.database engineConfig.user engineConfig.password
-                      ]
-
-            Err err ->
-                let
-                    l =
-                        Debug.log "Init error" err
-                in
-                    initModel ! []
+        result
+            |??>
+                (\( engineModel, cmd, queryId ) ->
+                    { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPerson initModel.queries }
+                        ! [ cmd
+                          , Postgres.connect ConnectError Connect ConnectionLost 15000 engineDBInfo.host engineDBInfo.port_ engineDBInfo.database engineDBInfo.user engineDBInfo.password
+                          ]
+                )
+            ??= (\err ->
+                    let
+                        l =
+                            Debug.log "Init error" err
+                    in
+                        initModel ! []
+                )
 
 
 main : Program Never
@@ -177,14 +192,14 @@ update msg model =
         updateEngine =
             ParentChildUpdate.updateChildApp (Engine.update engineConfig) update .engineModel SlateEngine (\model engineModel -> { model | engineModel = engineModel })
 
-        processCascadingMutation =
-            processCascadingMutationResult model
+        processCascadingMutationResult =
+            Mutation.processCascadingMutationResult model
                 deleteTaggers
                 MutationError
                 update
 
-        processMutation =
-            processMutationResult model
+        processMutationResult =
+            Mutation.processMutationResult model
     in
         case msg of
             Nop ->
@@ -215,58 +230,40 @@ update msg model =
             --     -- outputting to a port is a Cmd msg
             --     ( model, node 1 )
             SlateEngine engineMsg ->
-                let
-                    l =
-                        DebugF.log "engineMsg" engineMsg
-                in
-                    updateEngine engineMsg model
+                -- let
+                --     l =
+                --         DebugF.log "engineMsg" engineMsg
+                -- in
+                updateEngine engineMsg model
 
-            -- let
-            --     l =
-            --         DebugF.log "engineMsg" engineMsg
-            --
-            --     ( ( engineModel, engineCmd ), appMsgs ) =
-            --         Engine.update engineMsg model.engineModel
-            --
-            --     doUpdate msg ( model, cmds ) =
-            --         let
-            --             ( newModel, newCmd ) =
-            --                 update msg model
-            --         in
-            --             ( newModel, newCmd :: cmds )
-            --
-            --     ( newModel, myCmds ) =
-            --         List.foldl doUpdate ( { model | engineModel = engineModel }, [] ) appMsgs
-            --
-            --     myCmd =
-            --         myCmds
-            --             |> List.filter ((/=) Cmd.none)
-            --             |> Cmd.batch
-            -- in
-            --     newModel ! [ myCmd, Cmd.map SlateEngine engineCmd ]
             MutatePerson eventRecord ->
-                processCascadingMutation
-                    eventRecord
-                    (\model newDict -> { model | entirePersons = Debug.log "New Person Dictionary" newDict })
-                    (mutationError "Person")
-                <|
-                    PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
+                PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
+                    |> processCascadingMutationResult
+                        eventRecord
+                        (\model newDict -> { model | entirePersons = Debug.log "New Person Dictionary" newDict })
+                        (mutationError "Person")
 
             MutateAddress eventRecord ->
                 let
                     l =
                         Debug.log "MutateAddress" eventRecord
                 in
-                    processMutation
-                        (\model newDict -> { model | entireAddresses = Debug.log "New Address Dictionary" newDict })
-                        (mutationError "Address")
-                    <|
-                        AddressEntity.handleMutation model.entireAddresses eventRecord.event
+                    AddressEntity.handleMutation model.entireAddresses eventRecord.event
+                        |> processMutationResult
+                            (\model newDict -> { model | entireAddresses = Debug.log "New Address Dictionary" newDict })
+                            (mutationError "Address")
 
-            EngineError ( queryId, err ) ->
+            EngineLog ( level, ( queryId, err ) ) ->
                 let
                     l =
-                        Debug.log "EngineError" ( queryId, err )
+                        Debug.log "EngineLog" ( level, ( queryId, err ) )
+                in
+                    model ! []
+
+            EngineError ( type_, ( queryId, err ) ) ->
+                let
+                    l =
+                        Debug.log "EngineError" ( type_, ( queryId, err ) )
                 in
                     model ! []
 
@@ -275,7 +272,6 @@ update msg model =
                     l =
                         Debug.log "EventProcessingComplete" ""
 
-                    projectionResult : Result (List String) WrappedModel
                     projectionResult =
                         Dict.get queryId model.queries
                             |?> (\projection -> projection <| WrappedModel model)
@@ -288,20 +284,17 @@ update msg model =
                         projectionResult |??> (\wrappedModel -> unwrapModel wrappedModel) ??= (\_ -> model)
 
                     ( newEngineModel, cmd ) =
-                        if newModel.didRefresh == False then
-                            refreshQuery newModel.engineModel queryId
-                        else
-                            -- let
-                            --     json =
-                            --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
-                            --
-                            --     import_ =
-                            --         Engine.importQueryState EngineError EventProcessingError EventProcessingComplete SlateEngine
-                            --
-                            --     result =
-                            --         Debug.log "import" <| import_ personQuery newModel.engineModel json
-                            -- in
-                            ( newModel.engineModel, Cmd.none )
+                        newModel.didRefresh
+                            ? ( refreshQuery newModel.engineModel queryId
+                              , --let
+                                --     json =
+                                --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
+                                --
+                                --     result =
+                                --         Debug.log "import" <| Engine.importQueryState personQuery newModel.engineModel json
+                                -- in
+                                ( newModel.engineModel, Cmd.none )
+                              )
                 in
                     { newModel | didRefresh = True, engineModel = newEngineModel } ! [ cmd ]
 
@@ -319,7 +312,7 @@ update msg model =
                 in
                     model ! []
 
-            MissingMutationMsg eventRecord ->
+            UnspecifiedMutationInQuery eventRecord ->
                 let
                     l =
                         Debug.crash <| "Bad query, missing mutation message for:  " ++ (toString eventRecord)
@@ -362,23 +355,23 @@ unwrapModel wrappedModel =
             model
 
 
-projectPersonQuery : WrappedModel -> Result (List String) WrappedModel
-projectPersonQuery wrappedModel =
+projectPerson : WrappedModel -> Result (ProjectionErrors) WrappedModel
+projectPerson wrappedModel =
     let
         model =
             unwrapModel wrappedModel
 
-        addresses =
+        addressProjections =
             projectMap toAddress model.entireAddresses
 
-        persons =
-            projectMap (toPerson <| successfulProjections addresses) model.entirePersons
+        personProjections =
+            projectMap (toPerson <| successfulProjections addressProjections) model.entirePersons
 
         newModel =
-            { model | persons = successfulProjections persons, addresses = successfulProjections addresses }
+            { model | persons = successfulProjections personProjections, addresses = successfulProjections addressProjections }
 
         allErrors =
-            allFailedProjections [ failedProjections addresses, failedProjections persons ]
+            allFailedProjections [ failedProjections addressProjections, failedProjections personProjections ]
     in
         (allErrors == []) ? ( Ok <| WrappedModel newModel, Err allErrors )
 
@@ -389,9 +382,10 @@ defaultAddress =
     }
 
 
-{-| convert entire address to address
+{-|
+    Convert entire address to address
 -}
-toAddress : EntireAddress -> Result (List String) Address
+toAddress : EntireAddress -> Result (ProjectionErrors) Address
 toAddress entireAddress =
     getValidEntity
         [ ( isNothing entireAddress.street, "street is missing" )
@@ -409,7 +403,7 @@ defaultPerson =
 
 {-| convert entire person to person
 -}
-toPerson : AddressDict -> EntirePerson -> Result (List String) Person
+toPerson : AddressDict -> EntirePerson -> Result (ProjectionErrors) Person
 toPerson addresses entirePerson =
     let
         maybeAddressRef =
@@ -418,7 +412,6 @@ toPerson addresses entirePerson =
         maybeAddress =
             MaybeE.join <| maybeAddressRef |?> (\ref -> Dict.get ref addresses)
 
-        getPerson : Address -> Result (List String) Person
         getPerson address =
             getValidEntity
                 [ ( isNothing entirePerson.name, "name is missing" )
@@ -437,86 +430,13 @@ toPerson addresses entirePerson =
 
 query : NodeQuery Msg
 query =
-    Slate.Engine.Query.query MissingMutationMsg
+    Slate.Engine.Query.mtQuery UnspecifiedMutationInQuery
 
 
 personQuery : Query Msg
 personQuery =
-    Node { query | schema = personSchema, properties = Just [ "name" ], msg = MutatePerson }
-        [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], msg = MutateAddress } ]
-
-
-emptyEventData : MutatingEventData
-emptyEventData =
-    { entityId = ""
-    , value = Nothing
-    , referenceId = Nothing
-    , propertyId = Nothing
-    , oldPosition = Nothing
-    , newPosition = Nothing
-    }
-
-
-testUpdate : Model
-testUpdate =
-    let
-        eventRecord =
-            { id = "1"
-            , ts = Date.fromTime 0
-            , event =
-                { name = "Person created"
-                , data = Mutating { emptyEventData | entityId = "person-id" }
-                , metadata = { initiatorId = "Testing", command = "Create person" }
-                , version = Nothing
-                }
-            , max = Just "3"
-            }
-
-        eventRecord2 =
-            { id = "2"
-            , ts = Date.fromTime 0
-            , event =
-                { name = "Person name added"
-                , data = Mutating { emptyEventData | entityId = "person-id", value = Just """{"first": "Joe", "middle": "", "last": "Mama"}""" }
-                , metadata = { initiatorId = "Testing", command = "Add person name" }
-                , version = Nothing
-                }
-            , max = Just "3"
-            }
-
-        eventRecord3 =
-            { id = "3"
-            , ts = Date.fromTime 0
-            , event =
-                { name = "Person destroyed"
-                , data = Mutating { emptyEventData | entityId = "person-id" }
-                , metadata = { initiatorId = "Testing", command = "Destroy person" }
-                , version = Nothing
-                }
-            , max = Just "3"
-            }
-
-        sendEvent eventRecord model =
-            fst <| update (MutatePerson eventRecord) model
-    in
-        List.foldl sendEvent initModel [ eventRecord, eventRecord2, eventRecord3 ]
-
-
-
--- TODO remove this example
--- exQuery : List String
--- exQuery =
---     Node { query | entity = Just "A", properties = Just [ "i", "status" ] }
---         [ Leaf { query | entity = Just "B", properties = Just [] }
---         , Node { query | entity = Just "C" }
---             [ Leaf
---                 { query | entity = Just "E" }
---             , Leaf
---                 { query | entity = Just "F", properties = Just [ "n", "o" ] }
---             ]
---         , Leaf { query | entity = Just "X" }
---         ]
---         |> buildQuery ""
+    Node { query | schema = personSchema, properties = Just [ "name" ], tagger = MutatePerson }
+        [ Leaf { query | schema = addressSchema, properties = Just [ "street" ], tagger = MutateAddress } ]
 
 
 subscriptions : Model -> Sub Msg
@@ -531,11 +451,59 @@ subscriptions model =
 
 
 
--- {-| subscribe to input from JS and the clock ticks every second
--- -}
--- subscriptions : Model -> Sub Msg
--- subscriptions _ =
---     Sub.batch
---         ([ Time.every 10000 Tick
---          ]
---         )
+{-
+   emptyEventData : MutatingEventData
+   emptyEventData =
+       { entityId = ""
+       , value = Nothing
+       , referenceId = Nothing
+       , propertyId = Nothing
+       , oldPosition = Nothing
+       , newPosition = Nothing
+       }
+
+
+   testUpdate : Model
+   testUpdate =
+       let
+           eventRecord =
+               { id = "1"
+               , ts = Date.fromTime 0
+               , event =
+                   { name = "Person created"
+                   , data = Mutating { emptyEventData | entityId = "person-id" }
+                   , metadata = { initiatorId = "Testing", command = "Create person" }
+                   , version = Nothing
+                   }
+               , max = Just "3"
+               }
+
+           eventRecord2 =
+               { id = "2"
+               , ts = Date.fromTime 0
+               , event =
+                   { name = "Person name added"
+                   , data = Mutating { emptyEventData | entityId = "person-id", value = Just """{"first": "Joe", "middle": "", "last": "Mama"}""" }
+                   , metadata = { initiatorId = "Testing", command = "Add person name" }
+                   , version = Nothing
+                   }
+               , max = Just "3"
+               }
+
+           eventRecord3 =
+               { id = "3"
+               , ts = Date.fromTime 0
+               , event =
+                   { name = "Person destroyed"
+                   , data = Mutating { emptyEventData | entityId = "person-id" }
+                   , metadata = { initiatorId = "Testing", command = "Destroy person" }
+                   , version = Nothing
+                   }
+               , max = Just "3"
+               }
+
+           sendEvent eventRecord model =
+               fst <| update (MutatePerson eventRecord) model
+       in
+           List.foldl sendEvent initModel [ eventRecord, eventRecord2, eventRecord3 ]
+-}
