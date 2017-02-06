@@ -95,7 +95,7 @@ engineDBInfo : DbConnectionInfo
 engineDBInfo =
     { host = "postgresDBServer"
     , port_ = 5432
-    , database = "test"
+    , database = "test_entities"
     , user = "charles"
     , password = "testpassword"
     , timeout = 15000
