@@ -1,7 +1,5 @@
 port module Test.App exposing (..)
 
--- import Time exposing (every)
-
 import String exposing (..)
 import Dict exposing (Dict)
 import Html exposing (..)
@@ -21,7 +19,10 @@ import Slate.Common.Db exposing (..)
 import Utils.Ops exposing (..)
 import Utils.Error exposing (..)
 import Utils.Log exposing (..)
-import Postgres exposing (..)
+
+
+-- import Postgres exposing (..)
+
 import ParentChildUpdate exposing (..)
 
 
@@ -50,8 +51,9 @@ type alias Model =
     , addresses : AddressDict
     , engineModel : Engine.Model Msg
     , queries : Dict Int (WrappedModel -> Result (ProjectionErrors) WrappedModel)
-    , didRefresh : Bool
-    , listenConnectionId : Maybe Int
+    , didRefresh :
+        Bool
+        -- , listenConnectionId : Maybe Int
     }
 
 
@@ -73,7 +75,7 @@ type alias Entities =
 
 type Msg
     = Nop
-    | SlateEngine Engine.Msg
+    | EngineModule Engine.Msg
     | EventError EventRecord ( Int, String )
     | EngineLog ( LogLevel, ( Int, String ) )
     | EngineError ( ErrorType, ( Int, String ) )
@@ -83,12 +85,6 @@ type Msg
     | MutatePerson EventRecord
     | MutateAddress EventRecord
     | EventProcessingError ( String, String )
-    | ConnectError ( Int, String )
-    | Connect Int
-    | ConnectionLost ( Int, String )
-    | ListenUnlistenError String ( Int, String )
-    | ListenUnlisten ( Int, String, ListenUnlisten )
-    | ListenEvent ( Int, String, String )
 
 
 engineDBInfo : DbConnectionInfo
@@ -108,7 +104,7 @@ engineConfig =
     , errorTagger = EngineError
     , eventProcessingErrorTagger = EventProcessingError
     , completionTagger = EventProcessingComplete
-    , routerTagger = SlateEngine
+    , routeToMeTagger = EngineModule
     , queryBatchSize =
         2
         -- TODO CHANGE THIS !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -124,7 +120,6 @@ initModel =
     , engineModel = Engine.initModel
     , queries = Dict.empty
     , didRefresh = False
-    , listenConnectionId = Nothing
     }
 
 
@@ -144,23 +139,14 @@ init =
         result =
             executeQuery initModel.engineModel Nothing personQuery [ "123", "456" ]
 
-        -- executeQuery (Just "id NOT IN (3, 7)") personQuery [ "123", "456" ]
+        -- executeQuery initModel.engineModel (Just "id NOT IN (3, 7)") personQuery [ "123", "456" ]
     in
         result
             |??>
                 (\( engineModel, cmd, queryId ) ->
-                    { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPerson initModel.queries }
-                        ! [ cmd
-                          , Postgres.connect ConnectError Connect ConnectionLost 15000 engineDBInfo.host engineDBInfo.port_ engineDBInfo.database engineDBInfo.user engineDBInfo.password
-                          ]
+                    { initModel | engineModel = engineModel, queries = Dict.insert queryId projectPerson initModel.queries } ! [ cmd ]
                 )
-            ??= (\err ->
-                    let
-                        l =
-                            Debug.log "Init error" err
-                    in
-                        initModel ! []
-                )
+            ??= (\errs -> Debug.crash <| "Init error: " ++ (String.join "\n" errs))
 
 
 main : Program Never
@@ -190,7 +176,7 @@ update msg model =
     let
         updateEngine : Engine.Msg -> Model -> ( Model, Cmd Msg )
         updateEngine =
-            ParentChildUpdate.updateChildApp (Engine.update engineConfig) update .engineModel SlateEngine (\model engineModel -> { model | engineModel = engineModel })
+            ParentChildUpdate.updateChildApp (Engine.update engineConfig) update .engineModel engineConfig.routeToMeTagger (\model engineModel -> { model | engineModel = engineModel })
 
         processCascadingMutationResult =
             Mutation.processCascadingMutationResult model
@@ -204,37 +190,6 @@ update msg model =
         case msg of
             Nop ->
                 model ! []
-
-            ConnectError ( connectionId, error ) ->
-                let
-                    l =
-                        Debug.log "ConnectError" ( connectionId, error )
-                in
-                    model ! []
-
-            Connect connectionId ->
-                let
-                    l =
-                        Debug.log "Connect" connectionId
-                in
-                    { model | listenConnectionId = Just connectionId } ! []
-
-            ConnectionLost ( connectionId, error ) ->
-                let
-                    l =
-                        Debug.log "ConnectionLost" ( connectionId, error )
-                in
-                    model ! []
-
-            -- Tick time ->
-            --     -- outputting to a port is a Cmd msg
-            --     ( model, node 1 )
-            SlateEngine engineMsg ->
-                -- let
-                --     l =
-                --         DebugF.log "engineMsg" engineMsg
-                -- in
-                updateEngine engineMsg model
 
             MutatePerson eventRecord ->
                 PersonEntity.handleMutation model.entirePersons model.entireAddresses eventRecord.event
@@ -266,6 +221,9 @@ update msg model =
                         Debug.log "EngineError" ( type_, ( queryId, err ) )
                 in
                     model ! []
+
+            EngineModule engineMsg ->
+                updateEngine engineMsg model
 
             EventProcessingComplete queryId ->
                 let
@@ -323,27 +281,6 @@ update msg model =
                 let
                     l =
                         Debug.crash <| "Event Processing Error: " ++ (toString eventStr) ++ " error: " ++ error
-                in
-                    model ! []
-
-            ListenUnlistenError channel ( connectionId, error ) ->
-                let
-                    l =
-                        Debug.crash <| "Cannot listen to channel ':  " ++ channel ++ "' error: " ++ error
-                in
-                    model ! []
-
-            ListenUnlisten ( connectionId, channel, type_ ) ->
-                let
-                    l =
-                        Debug.log "ListenUnlisten" ( connectionId, channel, type_ )
-                in
-                    model ! []
-
-            ListenEvent ( connectionId, channel, message ) ->
-                let
-                    l =
-                        Debug.log "ListenEvent" ( connectionId, channel, message )
                 in
                     model ! []
 
@@ -441,13 +378,7 @@ personQuery =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    let
-        channel =
-            "eventsinsert"
-    in
-        model.listenConnectionId
-            |?> (\connectionId -> Postgres.listen (ListenUnlistenError channel) ListenUnlisten ListenEvent (model.listenConnectionId ?= 1) channel)
-            ?= Sub.none
+    Sub.none
 
 
 

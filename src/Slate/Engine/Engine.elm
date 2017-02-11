@@ -62,7 +62,7 @@ type alias Config msg =
     , errorTagger : ( ErrorType, ( QueryStateId, String ) ) -> msg
     , eventProcessingErrorTagger : ( String, String ) -> msg
     , completionTagger : QueryStateId -> msg
-    , routerTagger : Msg -> msg
+    , routeToMeTagger : Msg -> msg
     , queryBatchSize : Int
     }
 
@@ -351,10 +351,11 @@ importQueryState query model json =
 ---------------------------------------------------------------------------------------------------------
 
 
-retryConfig : Retry.Config
+retryConfig : Retry.Config Msg
 retryConfig =
     { retryMax = 3
     , delayNext = Retry.constantDelay 5000
+    , routeToMeTagger = RetryModule
     }
 
 
@@ -618,6 +619,6 @@ connectToDb : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> ( M
 connectToDb config dbInfo model queryStateId =
     let
         ( retryModel, retryCmd ) =
-            Retry.retry model.retryModel RetryModule (ConnectError queryStateId) RetryConnectCmd (connectToDbCmd config dbInfo model queryStateId)
+            Retry.retry retryConfig model.retryModel (ConnectError queryStateId) RetryConnectCmd (connectToDbCmd config dbInfo model queryStateId)
     in
-        { model | retryModel = retryModel } ! [ Cmd.map config.routerTagger retryCmd ]
+        { model | retryModel = retryModel } ! [ Cmd.map config.routeToMeTagger retryCmd ]

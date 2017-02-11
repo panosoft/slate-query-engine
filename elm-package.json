@@ -24,7 +24,7 @@
         "panosoft/elm-parent-child-update": "1.0.0 <= v < 2.0.0", 
         "panosoft/elm-string-utils": "1.0.0 <= v < 2.0.0", 
         "panosoft/elm-utils": "1.0.0 <= v < 2.0.0", 
-        "panosoft/elm-cmd-retry": "1.0.0 <= v < 2.0.0", 
+        "panosoft/elm-cmd-retry": "2.0.0 <= v < 3.0.0", 
         "panosoft/slate-common": "1.0.0 <= v < 2.0.0", 
         "panosoft/slate-test-entities": "1.0.0 <= v <= 1.0.0"
     }, 

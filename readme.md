@@ -121,7 +121,7 @@ type alias Config msg =
     , errorTagger : ( ErrorType, ( QueryStateId, String ) ) -> msg
 	, eventProcessingErrorTagger : ( String, String ) -> msg
     , completionTagger : Int -> msg
-    , routerTagger : Msg -> msg
+    , routeToMeTagger : Msg -> msg
     , queryBatchSize : Int
     }
 ```
@@ -130,7 +130,7 @@ type alias Config msg =
 * `errorTagger` - Msg constructor for errors for the Engine's parent.
 * `eventProcessingErrorTagger` - Msg constructor for event processing errors for the client of the Engine.
 * `completionTagger` - Msg constructor for query completion for the client of the Engine.
-* `routerTagger` - Msg constructor to route a msg back to the Engine.
+* `routeToMeTagger` - Msg constructor to route a msg back to the Engine.
 * `queryBatchSize` - Number of events to return per retreival from the Slate Database.
 
 #### Model msg
