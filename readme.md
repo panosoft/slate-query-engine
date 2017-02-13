@@ -85,31 +85,13 @@ Parent nodes have relationships with child nodes.
 
 The `properties` field can be used to define which properties are returned. If omitted then all properties are returned. To return NO properties simple provide an empty list, i.e. [].
 
+See `Test.App` for how to implement `Queries`.
+
+Additional information can be found in [slate-common](https://github.com/panosoft/slate-common).
+
 ## API
 
 ### Engine
-
-#### DBConnectionInfo
-
-Slate Engine DB Connection Information.
-
-```elm
-type alias DBConnectionInfo =
-    { host : String
-    , port_ : Int
-    , database : String
-    , user : String
-    , password : String
-    , timeout : Int
-    }
-```
-
-* `host` - Slate Database host name.
-* `port_` - Slate Database port.
-* `database` - Slate Database name.
-* `user` - Slate Dabase user.
-* `password` - Slate Dabase password.
-* `timeout` - Connection timeout in milliseconds.
 
 #### Config
 
