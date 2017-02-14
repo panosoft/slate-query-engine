@@ -20,6 +20,7 @@ module Slate.Engine.Query
 import String exposing (..)
 import Dict exposing (..)
 import Set exposing (..)
+import Tuple exposing (first, second)
 import List.Extra as ListE exposing (..)
 import Regex exposing (HowMany(All, AtMost))
 import Utils.Regex as RegexU
@@ -173,12 +174,12 @@ depthDict query =
         addChildren children depth dict =
             case children of
                 child :: rest ->
-                    depthDict' child depth <| addChildren rest depth dict
+                    depthDictInternal child depth <| addChildren rest depth dict
 
                 [] ->
                     dict
 
-        depthDict' query depth dict =
+        depthDictInternal query depth dict =
             case query of
                 Node nodeQuery children ->
                     add nodeQuery depth <| addChildren children (depth + 1) dict
@@ -186,7 +187,7 @@ depthDict query =
                 Leaf nodeQuery ->
                     add nodeQuery depth dict
     in
-        depthDict' query 0 Dict.empty
+        depthDictInternal query 0 Dict.empty
 
 
 toList : Query msg -> List (List (NodeQuery msg))
@@ -376,7 +377,7 @@ propertySchemaEventNames nodeQuery =
             ( schema, eventNames )
     in
         List.map (\p -> ( p.entitySchema, p.eventNames )) nodeQuery.schema.properties
-            |> List.filter (fst >> isNothing >> not)
+            |> List.filter (first >> isNothing >> not)
             |> List.map (\( mes, ens ) -> ( mes |?> identity ?= SchemaReference mtEntitySchema, ens ))
             |> List.map unwrap
 
@@ -394,7 +395,7 @@ getEventNames parent children =
             propertySchemaEventNames parent
 
         findEventNames schema =
-            snd <| (ListE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) ?= ( schema, [] )
+            second <| (ListE.find (\( s, _ ) -> s == schema) parentPropertySchemaEventNames) ?= ( schema, [] )
 
         childrenEventNames : List String
         childrenEventNames =

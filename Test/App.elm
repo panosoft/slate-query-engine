@@ -2,8 +2,6 @@ port module Test.App exposing (..)
 
 import String exposing (..)
 import Dict exposing (Dict)
-import Html exposing (..)
-import Html.App
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Slate.TestEntities.PersonEntity as PersonEntity exposing (EntirePerson, EntirePersonDict, defaultEntirePerson)
 import Slate.TestEntities.AddressEntity as AddressEntity exposing (EntireAddress, EntireAddressDict, defaultEntireAddress)
@@ -149,13 +147,10 @@ init =
             ??= (\errs -> Debug.crash <| "Init error: " ++ (String.join "\n" errs))
 
 
-main : Program Never
+main : Program Never Model Msg
 main =
-    -- N.B. the dummy view returns an empty HTML text node
-    --      this is just to make the compiler happy since the worker() call Javascript doesn't use a render
-    Html.App.program
+    Platform.program
         { init = init
-        , view = (\_ -> text "")
         , update = update
         , subscriptions = subscriptions
         }
