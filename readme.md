@@ -203,7 +203,7 @@ See `Test/App.elm` in this repo for usage in context.
 Refresh an existing Slate Query, i.e. process events since the last `executeQuery` or `refreshQuery`.
 
 ```elm
-refreshQuery : Config msg -> DBConnectionInfo -> Model msg -> Int -> ( Model msg, Cmd msg )
+refreshQuery : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> Result String ( Model msg, Cmd msg )
 refreshQuery config dbInfo model queryStateId
 ```
 
@@ -211,6 +211,14 @@ refreshQuery config dbInfo model queryStateId
 * `dbInfo` - DB Connection info.
 * `model` - The Engine's model.
 * `queryStateId` - The QueryState id, i.e. the Query to refresh.
+
+__Returns__
+
+> Result:
+
+> ERROR - "Invalid QueryStateId"
+
+> SUCCESS - (model, cmd)
 
 #### disposeQuery
 
@@ -228,15 +236,23 @@ disposeQuery model queryStateId
 
 Create a JSON String for saving the specified `QueryState`.
 
-This is useful for caching a query or saving for a subsequent execution of your App.
+This is useful for saving a query for a subsequent execution of your App.
 
 ```elm
-exportQueryState : Model msg -> Int -> String
+exportQueryState : Model msg -> QueryStateId -> Result String String
 exportQueryState model queryStateId
 ```
 
 * `model` - The Engine's model.
 * `queryStateId` - The QueryState id, i.e. the Query to refresh.
+
+__Returns__
+
+> Result:
+
+> ERROR - "Invalid QueryStateId"
+
+> SUCCESS - JSON
 
 #### importQueryState
 

@@ -286,19 +286,20 @@ executeQuery config dbInfo model additionalCriteria query rootIds =
 {-|
     Refresh an existing Slate Query, i.e. process events since the last `executeQuery` or `refreshQuery`.
 -}
-refreshQuery : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> ( Model msg, Cmd msg )
+refreshQuery : Config msg -> DbConnectionInfo -> Model msg -> QueryStateId -> Result String ( Model msg, Cmd msg )
 refreshQuery config dbInfo model queryStateId =
-    let
-        queryState =
-            getQueryState queryStateId model
+    Dict.get queryStateId model.queryStates
+        |?> (\queryState ->
+                let
+                    newQueryState =
+                        { queryState | currentTemplate = 0, firstTemplateWithDataMaxId = -1 }
 
-        newQueryState =
-            { queryState | currentTemplate = 0, firstTemplateWithDataMaxId = -1 }
-
-        ( newModel, cmd ) =
-            connectToDb config dbInfo { model | queryStates = Dict.insert queryStateId newQueryState model.queryStates } queryStateId
-    in
-        ( newModel, cmd )
+                    ( newModel, cmd ) =
+                        connectToDb config dbInfo { model | queryStates = Dict.insert queryStateId newQueryState model.queryStates } queryStateId
+                in
+                    Ok ( newModel, cmd )
+            )
+        ?= Err "Invalid QueryStateId"
 
 
 {-|
@@ -314,15 +315,11 @@ disposeQuery model queryStateId =
 
     This is useful for caching a query or saving for a subsequent execution of your App.
 -}
-exportQueryState : Model msg -> QueryStateId -> String
+exportQueryState : Model msg -> QueryStateId -> Result String String
 exportQueryState model queryStateId =
-    let
-        maybeQueryState =
-            Dict.get queryStateId model.queryStates
-    in
-        maybeQueryState
-            |?> (\queryState -> queryStateEncode queryState)
-            ?= ""
+    Dict.get queryStateId model.queryStates
+        |?> (\queryState -> Ok <| queryStateEncode queryState)
+        ?= Err "Invalid QueryStateId"
 
 
 {-|

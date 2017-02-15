@@ -1,6 +1,7 @@
 port module Test.App exposing (..)
 
 import String exposing (..)
+import StringUtils exposing (..)
 import Dict exposing (Dict)
 import Maybe.Extra as MaybeE exposing (isNothing)
 import Slate.TestEntities.PersonEntity as PersonEntity exposing (EntirePerson, EntirePersonDict, defaultEntirePerson)
@@ -126,7 +127,7 @@ executeQuery =
     Engine.executeQuery engineConfig engineDBInfo
 
 
-refreshQuery : Engine.Model Msg -> Int -> ( Engine.Model Msg, Cmd Msg )
+refreshQuery : Engine.Model Msg -> Int -> Result String ( Engine.Model Msg, Cmd Msg )
 refreshQuery =
     Engine.refreshQuery engineConfig engineDBInfo
 
@@ -239,13 +240,15 @@ update msg model =
                     ( newEngineModel, cmd ) =
                         newModel.didRefresh
                             ? ( refreshQuery newModel.engineModel queryId
-                              , --let
-                                --     json =
-                                --         Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId
+                                    |??> identity
+                                    ??= (\error -> Debug.crash ("refreshQuery:" +-+ error))
+                              , -- let
+                                --         json =
+                                --             Debug.log "json" <| Engine.exportQueryState newModel.engineModel queryId |??> identity ??= (\error -> Debug.crash "exportQueryState:" +-+ error)
                                 --
-                                --     result =
-                                --         Debug.log "import" <| Engine.importQueryState personQuery newModel.engineModel json
-                                -- in
+                                --         result =
+                                --             Debug.log "import" <| Engine.importQueryState personQuery newModel.engineModel json
+                                --     in
                                 ( newModel.engineModel, Cmd.none )
                               )
                 in
