@@ -1,3 +1,6 @@
+# DEPRECATED - Please see [elm-slate/query](https://github.com/elm-slate/query)
+
+
 # Slate Query Engine
 
 > Query Engine for Slate that allows Queries to be defined in Elm. The Engine takes care of all of the complexity of building the SQL queries. This is the heart of Slate since most of the code written to use Slate will use the Engine for queries.
